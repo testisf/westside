@@ -24,7 +24,6 @@ ENV NODE_ENV=production
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
-# Install tsx globally so `node --import tsx` can find it from any directory
 RUN npm install -g tsx
 RUN addgroup -g 10001 -S westside && adduser -u 10001 -S -G westside westside
 WORKDIR /westside
@@ -37,4 +36,6 @@ USER westside
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD wget -qO- http://127.0.0.1:4000/health || exit 1
-CMD ["node", "--import", "tsx", "apps/api/src/server.ts"]
+# Use tsx's CLI directly instead of `node --import tsx` — avoids Node's module
+# resolution issue where it can't find globally-installed packages.
+CMD ["tsx", "apps/api/src/server.ts"]
