@@ -1,0 +1,13 @@
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/gen/schemas/
+
+# Vite
+dist/
+node_modules/
+
+# Manifests (signed) — never commit secrets
+manifests/
+*.sig
+update-private.key

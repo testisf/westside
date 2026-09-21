@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 248 250 252;
+  --bg-subtle: 241 245 249;
+  --bg-muted: 226 232 240;
+  --surface: 255 255 255;
+  --surface-hover: 248 250 252;
+  --border: 226 232 240;
+  --border-strong: 203 213 225;
+  --text: 15 23 42;
+  --text-muted: 100 116 139;
+  --primary: 14 165 233;
+  --primary-hover: 2 132 199;
+  --primary-foreground: 255 255 255;
+  --danger: 220 38 38;
+  --success: 22 163 74;
+  --warning: 217 119 6;
+}
+
+html.dark {
+  --bg: 2 6 23;
+  --bg-subtle: 15 23 42;
+  --bg-muted: 30 41 59;
+  --surface: 15 23 42;
+  --surface-hover: 30 41 59;
+  --border: 30 41 59;
+  --border-strong: 51 65 85;
+  --text: 241 245 249;
+  --text-muted: 148 163 184;
+  --primary: 56 189 248;
+  --primary-hover: 125 211 252;
+  --primary-foreground: 2 6 23;
+  --danger: 248 113 113;
+  --success: 74 222 128;
+  --warning: 251 191 36;
+}
+
+html,
+body {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--text));
+  min-height: 100vh;
+  margin: 0;
+}
+
+* {
+  border-color: rgb(var(--border));
+}
+
+::selection {
+  background: rgb(var(--primary) / 0.25);
+}
+
+/* Tauri desktop chrome — disable text selection + native drag region */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+  cursor: default;
+}
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] a,
+[data-tauri-drag-region] input {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbar styling for desktop feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgb(var(--bg));
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border-strong));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--text-muted));
+}

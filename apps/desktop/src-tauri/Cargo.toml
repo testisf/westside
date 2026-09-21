@@ -1,0 +1,61 @@
+[package]
+name = "westside-desktop"
+version = "0.4.0"
+description = "Westside desktop client for ERLC communities"
+authors = ["Westside"]
+license = "UNLICENSED"
+repository = ""
+default-run = "westside-desktop"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.1", features = ["tray-icon", "devtools"] }
+tauri-plugin-shell = "2.0"
+tauri-plugin-updater = "2.0"
+tauri-plugin-dialog = "2.0"
+tauri-plugin-os = "2.0"
+tauri-plugin-process = "2.0"
+tauri-plugin-notification = "2.0"
+tauri-plugin-clipboard-manager = "2.0"
+tauri-plugin-global-shortcut = "2.0"
+
+# Secure storage — OS keychain on Windows / macOS / Linux
+keyring = "3.6"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async + HTTP for API calls from Rust (when needed)
+tokio = { version = "1.41", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Cryptography — for verifying update signatures
+ed25519-dalek = { version = "2.1", features = ["std"] }
+sha2 = "0.10"
+base64 = "0.22"
+
+# Misc
+thiserror = "2.0"
+anyhow = "1.0"
+parking_lot = "0.12"
+
+[features]
+# Enable production-only features (no devtools, custom protocol) for release builds.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

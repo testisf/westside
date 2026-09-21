@@ -1,0 +1,43 @@
+# Westside — local dev infrastructure
+# Brings up Postgres + Redis for local development.
+# Usage:
+#   pnpm infra:up        # start
+#   pnpm infra:down      # stop
+#
+# Data is persisted in ./infra/docker/data so it survives restarts.
+# Remove that directory to wipe the local DB.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: westside-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: westside
+      POSTGRES_PASSWORD: westside_dev_pw
+      POSTGRES_DB: westside
+      # Optional: tighten via pg_hba.conf in real deployments.
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U westside -d westside"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: westside-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "westside_dev_redis", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "westside_dev_redis", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
