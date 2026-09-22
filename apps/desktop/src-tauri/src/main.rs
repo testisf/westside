@@ -1,14 +1,4 @@
 //! Westside desktop client — Tauri main entrypoint.
-//!
-//! Architecture:
-//!   - Frontend (webview): React + Vite + Tailwind, in `apps/desktop/src/`.
-//!   - Rust core: handles auth persistence (keychain), global PTT hotkey,
-//!     update verification, and the small set of privileged commands the
-//!     frontend needs.
-//!
-//! The frontend talks to the API directly via `fetch` (CORS allows
-//! the desktop bundle's origin). The Rust core handles only the few
-//! operations that need OS-level access: keychain, hotkey, updater.
 
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
@@ -17,9 +7,9 @@ mod hotkey;
 mod storage;
 mod updater;
 
-use api::{extract_mfa_ticket, ApiError, ApiErrorBody, LoginData};
+use api::{extract_mfa_ticket, ApiError, ApiErrorBody, FrontendUser};
 use storage::{clear_credentials, load_credentials, save_credentials, StoredCredentials};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
 
 /// Shared state accessible to all Tauri commands.
@@ -33,7 +23,7 @@ impl AppState {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
             .user_agent(concat!("Westside/", env!("CARGO_PKG_VERSION")))
-            .timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(60))
             .build()
             .expect("failed to build reqwest client");
         Self {
@@ -43,14 +33,25 @@ impl AppState {
     }
 }
 
+/// The result returned to the frontend via Tauri IPC.
+/// Uses `FrontendUser` (snake_case) to match the TypeScript interface in tauri.ts.
 #[derive(serde::Serialize)]
 pub struct LoginResult {
-    pub user: api::UserData,
+    pub user: FrontendUser,
     pub access_token: String,
     /// Whether MFA is required (true means the client must call login_mfa).
     pub mfa_required: bool,
     /// Only present if mfa_required is true.
     pub mfa_ticket: Option<String>,
+}
+
+/// Simple ping command for testing the IPC bridge.
+/// Run in devtools console: await window.__TAURI__.core.invoke("ping")
+/// Should return "pong".
+#[tauri::command]
+fn ping() -> String {
+    log::info!("ping command invoked");
+    "pong".to_string()
 }
 
 #[tauri::command]
@@ -59,6 +60,7 @@ async fn login(
     identifier: String,
     password: String,
 ) -> Result<LoginResult, String> {
+    log::info!("login command invoked: identifier={}", identifier);
     let client = state.api_client.clone();
     match api::login(&client, &identifier, &password).await {
         Ok(data) => {
@@ -72,7 +74,7 @@ async fn login(
                 log::warn!("failed to save credentials to keychain: {e}");
             }
             Ok(LoginResult {
-                user: data.user,
+                user: data.user.into(),
                 access_token: data.access_token,
                 mfa_required: false,
                 mfa_ticket: None,
@@ -82,7 +84,7 @@ async fn login(
             // Could be invalid credentials OR MFA required.
             if let Some(ticket) = extract_mfa_ticket(&body) {
                 return Ok(LoginResult {
-                    user: api::UserData {
+                    user: FrontendUser {
                         id: String::new(),
                         email: String::new(),
                         username: String::new(),
@@ -103,7 +105,11 @@ async fn login(
         }
         Err(ApiError::Server { status, body }) => {
             log::error!("login server error {status}: {body}");
-            Err("INTERNAL_ERROR".to_string())
+            // Surface the actual API error code instead of generic INTERNAL_ERROR
+            let code = serde_json::from_str::<ApiErrorBody>(&body)
+                .map(|b| b.error.code)
+                .unwrap_or_else(|_| format!("SERVER_ERROR_{}", status));
+            Err(code)
         }
         Err(e) => {
             log::error!("login network error: {e}");
@@ -118,6 +124,7 @@ async fn login_mfa(
     ticket: String,
     code: String,
 ) -> Result<LoginResult, String> {
+    log::info!("login_mfa command invoked");
     let client = state.api_client.clone();
     match api::login_mfa(&client, &ticket, &code).await {
         Ok(data) => {
@@ -130,7 +137,7 @@ async fn login_mfa(
                 log::warn!("failed to save credentials to keychain: {e}");
             }
             Ok(LoginResult {
-                user: data.user,
+                user: data.user.into(),
                 access_token: data.access_token,
                 mfa_required: false,
                 mfa_ticket: None,
@@ -139,7 +146,10 @@ async fn login_mfa(
         Err(ApiError::Server { status: 401, .. }) => Err("AUTH_MFA_INVALID".to_string()),
         Err(ApiError::Server { status, body }) => {
             log::error!("mfa login server error {status}: {body}");
-            Err("INTERNAL_ERROR".to_string())
+            let code = serde_json::from_str::<ApiErrorBody>(&body)
+                .map(|b| b.error.code)
+                .unwrap_or_else(|_| format!("SERVER_ERROR_{}", status));
+            Err(code)
         }
         Err(e) => {
             log::error!("mfa login network error: {e}");
@@ -150,13 +160,12 @@ async fn login_mfa(
 
 #[tauri::command]
 async fn refresh_token(state: State<'_, AppState>) -> Result<String, String> {
-    // Load refresh token from keychain.
+    log::info!("refresh_token command invoked");
     let creds = load_credentials().map_err(|_| "NO_CREDENTIALS".to_string())?;
     let refresh = creds.refresh_token.ok_or("NO_REFRESH_TOKEN".to_string())?;
     let client = state.api_client.clone();
     match api::refresh(&client, &refresh).await {
         Ok(data) => {
-            // Persist the new tokens.
             let new_creds = StoredCredentials {
                 access_token: Some(data.access_token.clone()),
                 refresh_token: data.refresh_token.clone(),
@@ -168,7 +177,6 @@ async fn refresh_token(state: State<'_, AppState>) -> Result<String, String> {
             Ok(data.access_token)
         }
         Err(ApiError::Server { status: 401, .. }) => {
-            // Refresh reuse or expired → clear all credentials.
             let _ = clear_credentials();
             Err("AUTH_REFRESH_FAILED".to_string())
         }
@@ -181,6 +189,7 @@ async fn refresh_token(state: State<'_, AppState>) -> Result<String, String> {
 
 #[tauri::command]
 async fn logout(state: State<'_, AppState>, access_token: String) -> Result<(), String> {
+    log::info!("logout command invoked");
     let creds = load_credentials().ok();
     if let Some(c) = creds {
         if let Some(refresh) = c.refresh_token {
@@ -215,7 +224,6 @@ async fn check_for_updates(app: AppHandle) -> Result<bool, String> {
     match updater.check().await {
         Ok(Some(update)) => {
             log::info!("update available: {}", update.version);
-            // Notify the frontend.
             let _ = app.emit(
                 "update-available",
                 serde_json::json!({
@@ -246,7 +254,10 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         .ok_or("NO_UPDATE_AVAILABLE".to_string())?;
     update
         .download_and_install(|progress, total| {
-            log::info!("downloading update: {} / {}", progress, total);
+            let total_str = total
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "?".to_string());
+            log::info!("downloading update: {} / {}", progress, total_str);
         }, || {
             log::info!("update downloaded; installing…");
         })
@@ -262,7 +273,6 @@ fn get_app_version() -> String {
 
 #[tauri::command]
 fn register_ptt(app: AppHandle, accelerator: String) -> Result<(), String> {
-    // Unregister any previous one.
     let _ = hotkey::unregister_ptt(&app, &accelerator);
     hotkey::register_ptt(&app, &accelerator)
 }
@@ -285,7 +295,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_updater::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
@@ -294,18 +304,15 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState::new())
         .setup(|app| {
-            // Init PTT hotkey module with the app handle.
             hotkey::init(app.handle().clone());
-
-            // Register the default PTT shortcut (best effort; the user can change it).
             if let Err(e) = hotkey::register_default_ptt(app.handle()) {
                 log::warn!("failed to register default PTT shortcut: {e}");
             }
-
             log::info!("Westside desktop v{} started", env!("CARGO_PKG_VERSION"));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            ping,
             login,
             login_mfa,
             refresh_token,

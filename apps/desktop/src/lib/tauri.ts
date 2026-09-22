@@ -4,12 +4,11 @@
  * Wraps the `@tauri-apps/api` `invoke` calls so the React frontend talks
  * to the Rust core via typed functions, not raw strings.
  *
- * If `window.__TAURI_INTERNALS__` is missing (e.g. running the frontend
- * standalone in a browser via `vite dev` without Tauri), all calls reject
- * with `NOT_IN_TAURI`. This makes browser-based prototyping possible.
+ * Uses the official `isTauri()` from `@tauri-apps/api/core` which correctly
+ * detects the Tauri 2 environment.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export interface UserData {
@@ -26,10 +25,6 @@ export interface LoginResult {
   access_token: string;
   mfa_required: boolean;
   mfa_ticket: string | null;
-}
-
-function isTauri(): boolean {
-  return typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
 }
 
 export async function tauriLogin(identifier: string, password: string): Promise<LoginResult> {

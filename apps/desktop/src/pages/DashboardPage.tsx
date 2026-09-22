@@ -26,15 +26,26 @@ export function DashboardPage({ onNavigate }: { onNavigate: (r: "servers" | "set
   const [me, setMe] = useState<MeResponse | null>(null);
   const [servers, setServers] = useState<Server[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState<{ version: string; body: string } | null>(null);
   const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     (async () => {
       const res = await apiFetch<MeResponse>("/api/v1/auth/me");
+      if (res.error) {
+        setError(`User: ${res.error.code} - ${res.error.message}`);
+        setLoading(false);
+        return;
+      }
       if (res.data) setMe(res.data);
+
       const serversRes = await apiFetch<Server[]>("/api/v1/servers");
-      if (serversRes.data) setServers(serversRes.data);
+      if (serversRes.error) {
+        setError(`Servers: ${serversRes.error.code} - ${serversRes.error.message}`);
+      } else if (serversRes.data) {
+        setServers(serversRes.data);
+      }
       setLoading(false);
 
       // Check for updates on boot.
@@ -67,9 +78,25 @@ export function DashboardPage({ onNavigate }: { onNavigate: (r: "servers" | "set
     return <div className="p-6 text-text-muted text-sm">Loading dashboard…</div>;
   }
 
+  if (error || !me) {
+    return (
+      <div className="p-6 max-w-3xl">
+        <div className="mb-4 text-sm text-danger bg-danger/10 border border-danger/20 rounded-md px-3 py-2">
+          {error ?? "Failed to load user data."}
+        </div>
+        <button
+          onClick={() => window.location.reload()}
+          className="bg-primary hover:bg-primary-hover text-primary-foreground text-sm font-medium rounded-md px-4 py-2"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-3xl">
-      <h1 className="text-2xl font-semibold mb-1">Welcome, {me?.user.username}</h1>
+      <h1 className="text-2xl font-semibold mb-1">Welcome, {me.user.username}</h1>
       <p className="text-sm text-text-muted mb-6">Westside desktop client — Phase 4.</p>
 
       {updateAvailable && (

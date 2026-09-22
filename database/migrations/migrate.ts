@@ -9,7 +9,8 @@
  */
 
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 
 const url = process.env.DATABASE_URL;
@@ -25,7 +26,10 @@ const sql = postgres(url, {
   options: "application_name=westside-migrator",
 } as postgres.Options<{}>);
 
-const MIGRATIONS_DIR = new URL("./", import.meta.url).pathname;
+// Fix Windows path: use fileURLToPath + dirname instead of URL.pathname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const MIGRATIONS_DIR = __dirname;
 
 async function main() {
   // Ensure migrations tracking table exists.

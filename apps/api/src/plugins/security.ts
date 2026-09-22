@@ -18,7 +18,7 @@ import rateLimit from "@fastify/rate-limit";
 import type { FastifyRequest, FastifyReply } from "fastify";
 import type { AppConfig } from "../config/index.ts";
 import { getRedis } from "../lib/redis.ts";
-import { slidingWindowRateLimit } from "../lib/redis.ts";
+import { slidingWindowRateLimit, checkRateLimitOnly as checkRateLimitOnlyRedis } from "../lib/redis.ts";
 
 export default fp(
   async function securityPlugin(app, opts: { config: AppConfig }) {
@@ -115,4 +115,17 @@ export async function checkRateLimit(
   windowSeconds: number,
 ): Promise<{ limited: boolean; retryAfter?: number; remaining?: number }> {
   return slidingWindowRateLimit(getRedis(cfg), key, limit, windowSeconds);
+}
+
+/**
+ * Peek at the rate limit count WITHOUT incrementing.
+ * Use this to check if a key is already limited before processing a request.
+ */
+export async function checkRateLimitOnly(
+  cfg: AppConfig,
+  key: string,
+  limit: number,
+  windowSeconds: number,
+): Promise<{ limited: boolean; remaining?: number; currentCount: number }> {
+  return checkRateLimitOnlyRedis(getRedis(cfg), key, limit, windowSeconds);
 }

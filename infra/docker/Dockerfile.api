@@ -1,31 +1,61 @@
-﻿# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.7
 
-FROM node:22-alpine AS runtime
-ENV NODE_ENV=production
+# ---------- Westside API Dockerfile ----------
+# Multi-stage build that produces a small non-root image.
+
+FROM node:22-alpine AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
 RUN apk add --no-cache python3 make g++
 
-# Create non-root user
-RUN addgroup -g 10001 -S westside && adduser -u 10001 -S -G westside westside
-
 WORKDIR /westside
 
-# Copy everything (lockfile + package.json files for proper pnpm install)
-COPY --chown=westside:westside pnpm-workspace.yaml package.json turbo.json tsconfig.base.json ./
-COPY --chown=westside:westside packages ./packages
-COPY --chown=westside:westside database ./database
-COPY --chown=westside:westside apps/api ./apps/api
+# ---------- deps ----------
+FROM base AS deps
+COPY pnpm-workspace.yaml package.json turbo.json tsconfig.base.json ./
+COPY packages/config/package.json ./packages/config/
+COPY packages/shared/package.json ./packages/shared/
+COPY database/package.json ./database/
+COPY apps/api/package.json ./apps/api/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
 
-# Install dependencies in this stage — pnpm will create proper symlinks
-RUN pnpm install --no-frozen-lockfile
+# ---------- build ----------
+FROM deps AS build
+COPY packages ./packages
+COPY database ./database
+COPY apps/api ./apps/api
+COPY tsconfig.base.json ./
+RUN pnpm --filter @westside/shared typecheck || true
+RUN pnpm --filter @westside/api build
 
-# Install tsx globally so it's available on PATH
-RUN npm install -g tsx
+# ---------- prod deps ----------
+FROM base AS prod-deps
+COPY pnpm-workspace.yaml package.json turbo.json ./
+COPY packages/config/package.json ./packages/config/
+COPY packages/shared/package.json ./packages/shared/
+COPY database/package.json ./database/
+COPY apps/api/package.json ./apps/api/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --prod
 
+# ---------- runtime ----------
+FROM node:22-alpine AS runtime
+ENV NODE_ENV=production
+ENV PNPM_HOME=/pnpm
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable
+# Non-root UID.
+RUN addgroup -g 10001 -S westside && adduser -u 10001 -S -G westside westside
+WORKDIR /westside
+COPY --from=prod-deps --chown=westside:westside /westside/node_modules ./node_modules
+COPY --from=prod-deps --chown=westside:westside /westside/packages ./packages
+COPY --from=prod-deps --chown=westside:westside /westside/database ./database
+COPY --from=build --chown=westside:westside /westside/apps/api/dist ./apps/api/dist
+COPY --from=build --chown=westside:westside /westside/apps/api/package.json ./apps/api/package.json
 USER westside
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD wget -qO- http://127.0.0.1:4000/health || exit 1
-CMD ["tsx", "apps/api/src/server.ts"]
+CMD ["node", "apps/api/dist/server.js"]

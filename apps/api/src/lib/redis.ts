@@ -73,3 +73,31 @@ export async function slidingWindowRateLimit(
   }
   return { limited: false, remaining: Math.max(0, limit - card) };
 }
+
+/**
+ * Check the current rate limit count WITHOUT incrementing.
+ * Use this to peek at the counter before deciding whether to increment.
+ */
+export async function checkRateLimitOnly(
+  redis: Redis,
+  key: string,
+  limit: number,
+  windowSeconds: number,
+): Promise<{ limited: boolean; remaining?: number; currentCount: number }> {
+  const now = Date.now();
+  const windowStart = now - windowSeconds * 1000;
+
+  const pipeline = redis.pipeline();
+  pipeline.zremrangebyscore(key, 0, windowStart);
+  pipeline.zcard(key);
+  pipeline.pexpire(key, windowSeconds * 1000);
+  const results = await pipeline.exec();
+
+  if (!results) return { limited: false, currentCount: 0 };
+
+  const card = results[1]?.[1] as number;
+  if (card >= limit) {
+    return { limited: true, remaining: 0, currentCount: card };
+  }
+  return { limited: false, remaining: Math.max(0, limit - card), currentCount: card };
+}

@@ -33,7 +33,7 @@ import {
   resetPasswordSchema,
   verifyEmailSchema,
 } from "../../schemas/index.ts";
-import { checkRateLimit } from "../../plugins/security.ts";
+import { checkRateLimit, checkRateLimitOnly } from "../../plugins/security.ts";
 import { ApiError } from "../../lib/error.ts";
 import { clientMeta } from "../../plugins/audit.ts";
 import {
@@ -117,17 +117,20 @@ export default async function authRoutes(app: FastifyInstance, opts: { config: A
   app.post("/api/v1/auth/login", async (req, reply) => {
     const body = loginSchema.parse(req.body);
 
-    // Per-IP + per-identifier rate limit.
-    const rlIp = await checkRateLimit(cfg, `login:ip:${req.ip}`, cfg.rateLimit.loginPer15Min, 900);
-    if (rlIp.limited) throw new ApiError("RATE_LIMITED", { details: { retryAfter: rlIp.retryAfter } });
+    // Per-IP + per-identifier rate limit — CHECK only, don't increment.
+    // We increment ONLY on failed login below, so successful logins don't
+    // count toward the limit. This prevents legitimate users from getting
+    // locked out by their own successful logins.
+    const rlIp = await checkRateLimitOnly(cfg, `login:ip:${req.ip}`, cfg.rateLimit.loginPer15Min, 900);
+    if (rlIp.limited) throw new ApiError("RATE_LIMITED", { details: { retryAfter: 900 } });
 
-    const rlIdent = await checkRateLimit(
+    const rlIdent = await checkRateLimitOnly(
       cfg,
       `login:ident:${body.identifier.toLowerCase()}`,
       cfg.rateLimit.loginPer15Min,
       900,
     );
-    if (rlIdent.limited) throw new ApiError("RATE_LIMITED", { details: { retryAfter: rlIdent.retryAfter } });
+    if (rlIdent.limited) throw new ApiError("RATE_LIMITED", { details: { retryAfter: 900 } });
 
     try {
       const result = await login(cfg, body, clientMeta(req));
@@ -152,7 +155,16 @@ export default async function authRoutes(app: FastifyInstance, opts: { config: A
         },
       });
     } catch (err) {
+      // On FAILED login, increment the rate limit counters so repeated
+      // failures get blocked. Successful logins don't count.
       if (err instanceof ApiError && err.code === "AUTH_INVALID_CREDENTIALS") {
+        await checkRateLimit(cfg, `login:ip:${req.ip}`, cfg.rateLimit.loginPer15Min - 1, 900);
+        await checkRateLimit(
+          cfg,
+          `login:ident:${body.identifier.toLowerCase()}`,
+          cfg.rateLimit.loginPer15Min - 1,
+          900,
+        );
         await app.securityEvent({
           type: "FAILED_LOGIN",
           severity: "warn",
