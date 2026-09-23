@@ -30,15 +30,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: https://*.roblox.com https://*.rbxcdn.com; connect-src 'self' https://api.westside.local http://localhost:4000 https://api.westside.example wss://api.westside.example ws://localhost:4000; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
-      "devCsp": "default-src 'self'; img-src 'self' data: https:; connect-src 'self' http://localhost:4000 http://localhost:1420 ws://localhost:4000 ws://localhost:1420; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
-    },
-    "trayIcon": {
-      "id": "main",
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "menuOnLeftClick": false,
-      "tooltip": "Westside"
+      "csp": "default-src 'self'; img-src 'self' data: https:; connect-src 'self' https://westside-xfz2.onrender.com https://*.onrender.com http://localhost:4000 ws://localhost:4000 wss://westside-xfz2.onrender.com; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
+      "devCsp": "default-src 'self'; img-src 'self' data: https:; connect-src 'self' http://localhost:4000 http://localhost:1420 ws://localhost:4000 ws://localhost:1420 https://westside-xfz2.onrender.com; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
     },
     "macOSPrivateApi": false
   },

@@ -31,7 +31,7 @@
     "process:allow-exit",
     "notification:default",
     "notification:allow-notify",
-    "notification:allow-ask-permission",
+    "notification:allow-request-permission",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-text",
     "global-shortcut:allow-register",
