@@ -1,28 +1,16 @@
 //! Westside — Rust-side API client.
-//!
-//! All requests use rustls (no OpenSSL dependency). The API base URL is
-//! configured via the `WESTSIDE_API_URL` env var — checked at runtime first,
-//! then falling back to the compile-time value, then to the dev URL.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const DEFAULT_API_URL: &str = "http://localhost:4000";
 
-/// Returns the API base URL.
-///
-/// Priority:
-/// 1. `WESTSIDE_API_URL` env var at RUNTIME (allows overriding without rebuild)
-/// 2. `WESTSIDE_API_URL` env var at COMPILE time (baked into the binary)
-/// 3. `DEFAULT_API_URL` (localhost:4000, for dev)
 pub fn api_base_url() -> String {
-    // Runtime check first — allows overriding the baked-in value without rebuilding.
     if let Ok(url) = std::env::var("WESTSIDE_API_URL") {
         if !url.is_empty() {
             return url;
         }
     }
-    // Compile-time check — bakes the value into the binary at build time.
     option_env!("WESTSIDE_API_URL")
         .unwrap_or(DEFAULT_API_URL)
         .to_string()
@@ -49,8 +37,6 @@ pub struct LoginResponse {
     pub data: LoginData,
 }
 
-/// The login response from the API.
-/// Uses camelCase to match the API's JSON shape.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginData {
@@ -60,8 +46,6 @@ pub struct LoginData {
     pub refresh_token: Option<String>,
 }
 
-/// The user data as returned by the API.
-/// Uses camelCase to deserialize the API's JSON correctly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserData {
@@ -73,10 +57,6 @@ pub struct UserData {
     pub mfa_enabled: bool,
 }
 
-/// The user data as sent TO the frontend via Tauri IPC.
-/// Uses snake_case to match the TypeScript `UserData` interface in tauri.ts.
-/// This is a SEPARATE struct from `UserData` so the camelCase deserialization
-/// doesn't leak into the IPC serialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrontendUser {
     pub id: String,
@@ -114,16 +94,61 @@ pub struct ApiErrorDetails {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MfaRequiredResponse {
-    pub error: ApiErrorDetails,
+pub struct RegisterRequest {
+    pub email: String,
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MfaLoginRequest {
-    pub ticket: String,
-    pub code: String,
+pub struct RegisterResponse {
+    pub data: RegisterData,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterData {
+    pub user_id: String,
+    pub verification_url: Option<String>,
+}
+
+pub async fn register(
+    client: &reqwest::Client,
+    email: &str,
+    username: &str,
+    password: &str,
+) -> Result<RegisterData, ApiError> {
+    let url = format!("{}/api/v1/auth/register", api_base_url());
+    let body = RegisterRequest {
+        email: email.to_string(),
+        username: username.to_string(),
+        password: password.to_string(),
+    };
+    let res = client.post(&url).json(&body).send().await?;
+    let status = res.status();
+    let text = res.text().await?;
+    if !status.is_success() {
+        return Err(ApiError::Server { status: status.as_u16(), body: text });
+    }
+    let parsed: RegisterResponse = serde_json::from_str(&text)
+        .map_err(|e| ApiError::InvalidResponse(e.to_string()))?;
+    Ok(parsed.data)
+}
+
+pub async fn verify_email(
+    client: &reqwest::Client,
+    token: &str,
+) -> Result<(), ApiError> {
+    let url = format!("{}/api/v1/auth/verify-email", api_base_url());
+    let body = serde_json::json!({ "token": token });
+    let res = client.post(&url).json(&body).send().await?;
+    let status = res.status();
+    let text = res.text().await?;
+    if !status.is_success() {
+        return Err(ApiError::Server { status: status.as_u16(), body: text });
+    }
+    Ok(())
+}
 pub async fn login(
     client: &reqwest::Client,
     identifier: &str,
@@ -151,10 +176,7 @@ pub async fn login_mfa(
     code: &str,
 ) -> Result<LoginData, ApiError> {
     let url = format!("{}/api/v1/auth/login/mfa", api_base_url());
-    let body = MfaLoginRequest {
-        ticket: ticket.to_string(),
-        code: code.to_string(),
-    };
+    let body = serde_json::json!({ "ticket": ticket, "code": code });
     let res = client.post(&url).json(&body).send().await?;
     let status = res.status();
     let text = res.text().await?;
@@ -199,7 +221,6 @@ pub async fn logout(
     Ok(())
 }
 
-/// Extract the MFA ticket from a `AUTH_MFA_REQUIRED` error response, if any.
 pub fn extract_mfa_ticket(server_body: &str) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(server_body).ok()?;
     let code = parsed.get("error")?.get("code")?.as_str()?;

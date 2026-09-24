@@ -1,22 +1,10 @@
 //! Westside — secure storage via OS keychain.
-//!
-//! Tokens are stored in the OS-native credential store:
-//!   - Windows: Credential Manager
-//!   - macOS: Keychain
-//!   - Linux: libsecret / gnome-keyring (falls back to KWallet)
-//!
-//! The desktop binary NEVER contains DB credentials, master API keys, or
-//! admin secrets. Only per-user refresh tokens are stored, and only in the
-//! keychain — never in a flat file, never in the binary, never in localStorage.
 
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const SERVICE_NAME: &str = "com.westside.desktop";
-const REFRESH_TOKEN_KEY: &str = "refresh_token";
-const ACCESS_TOKEN_KEY: &str = "access_token";
-const USER_ID_KEY: &str = "user_id";
+const SERVICE_NAME: &str = "Westside";
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -35,51 +23,58 @@ pub struct StoredCredentials {
     pub user_id: Option<String>,
 }
 
-/// Save the refresh token (and current access token) to the OS keychain.
 pub fn save_credentials(creds: &StoredCredentials) -> Result<(), StorageError> {
     if let Some(refresh) = &creds.refresh_token {
-        Entry::new(SERVICE_NAME, REFRESH_TOKEN_KEY)?.set_password(refresh)?;
+        match Entry::new(SERVICE_NAME, "refresh_token")?.set_password(refresh) {
+            Ok(_) => log::info!("refresh_token saved to keychain"),
+            Err(e) => log::error!("FAILED to save refresh_token to keychain: {e}"),
+        }
     }
     if let Some(access) = &creds.access_token {
-        Entry::new(SERVICE_NAME, ACCESS_TOKEN_KEY)?.set_password(access)?;
+        match Entry::new(SERVICE_NAME, "access_token")?.set_password(access) {
+            Ok(_) => log::info!("access_token saved to keychain"),
+            Err(e) => log::error!("FAILED to save access_token to keychain: {e}"),
+        }
     }
     if let Some(user_id) = &creds.user_id {
-        Entry::new(SERVICE_NAME, USER_ID_KEY)?.set_password(user_id)?;
+        match Entry::new(SERVICE_NAME, "user_id")?.set_password(user_id) {
+            Ok(_) => log::info!("user_id saved to keychain"),
+            Err(e) => log::error!("FAILED to save user_id to keychain: {e}"),
+        }
     }
     Ok(())
 }
 
-/// Load whatever credentials are present in the keychain.
 pub fn load_credentials() -> Result<StoredCredentials, StorageError> {
-    let refresh_token = Entry::new(SERVICE_NAME, REFRESH_TOKEN_KEY)
+    let refresh_token = Entry::new(SERVICE_NAME, "refresh_token")
         .and_then(|e| e.get_password())
         .ok();
 
-    let access_token = Entry::new(SERVICE_NAME, ACCESS_TOKEN_KEY)
+    let access_token = Entry::new(SERVICE_NAME, "access_token")
         .and_then(|e| e.get_password())
         .ok();
 
-    let user_id = Entry::new(SERVICE_NAME, USER_ID_KEY)
+    let user_id = Entry::new(SERVICE_NAME, "user_id")
         .and_then(|e| e.get_password())
         .ok();
 
     if refresh_token.is_none() && access_token.is_none() && user_id.is_none() {
+        log::warn!("no credentials found in keychain");
         return Err(StorageError::NotPresent);
     }
 
-    Ok(StoredCredentials {
-        access_token,
-        refresh_token,
-        user_id,
-    })
+    log::info!("credentials loaded from keychain (refresh={}, access={}, user_id={})",
+        refresh_token.is_some(), access_token.is_some(), user_id.is_some());
+
+    Ok(StoredCredentials { access_token, refresh_token, user_id })
 }
 
-/// Wipe all stored credentials. Used on logout and on auth failures.
 pub fn clear_credentials() -> Result<(), StorageError> {
-    for key in [REFRESH_TOKEN_KEY, ACCESS_TOKEN_KEY, USER_ID_KEY] {
+    for key in ["refresh_token", "access_token", "user_id"] {
         if let Ok(entry) = Entry::new(SERVICE_NAME, key) {
             let _ = entry.delete_credential();
         }
     }
+    log::info!("credentials cleared from keychain");
     Ok(())
 }

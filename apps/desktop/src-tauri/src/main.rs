@@ -54,6 +54,62 @@ fn ping() -> String {
     "pong".to_string()
 }
 
+#[derive(serde::Serialize)]
+pub struct RegisterResult {
+    pub user_id: String,
+    pub verification_url: Option<String>,
+}
+
+#[tauri::command]
+async fn register(
+    state: State<'_, AppState>,
+    email: String,
+    username: String,
+    password: String,
+) -> Result<RegisterResult, String> {
+    log::info!("register command invoked: email={}", email);
+    let client = state.api_client.clone();
+    match api::register(&client, &email, &username, &password).await {
+        Ok(data) => Ok(RegisterResult {
+            user_id: data.user_id,
+            verification_url: data.verification_url,
+        }),
+        Err(ApiError::Server { status, body }) => {
+            log::error!("register server error {status}: {body}");
+            let code = serde_json::from_str::<ApiErrorBody>(&body)
+                .map(|b| b.error.code)
+                .unwrap_or_else(|_| format!("SERVER_ERROR_{}", status));
+            Err(code)
+        }
+        Err(e) => {
+            log::error!("register network error: {e}");
+            Err("NETWORK_ERROR".to_string())
+        }
+    }
+}
+
+#[tauri::command]
+async fn verify_email(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<(), String> {
+    log::info!("verify_email command invoked");
+    let client = state.api_client.clone();
+    match api::verify_email(&client, &token).await {
+        Ok(()) => Ok(()),
+        Err(ApiError::Server { status, body }) => {
+            log::error!("verify-email server error {status}: {body}");
+            let code = serde_json::from_str::<ApiErrorBody>(&body)
+                .map(|b| b.error.code)
+                .unwrap_or_else(|_| format!("SERVER_ERROR_{}", status));
+            Err(code)
+        }
+        Err(e) => {
+            log::error!("verify-email network error: {e}");
+            Err("NETWORK_ERROR".to_string())
+        }
+    }
+}
 #[tauri::command]
 async fn login(
     state: State<'_, AppState>,
@@ -162,7 +218,10 @@ async fn login_mfa(
 async fn refresh_token(state: State<'_, AppState>) -> Result<String, String> {
     log::info!("refresh_token command invoked");
     let creds = load_credentials().map_err(|_| "NO_CREDENTIALS".to_string())?;
-    let refresh = creds.refresh_token.ok_or("NO_REFRESH_TOKEN".to_string())?;
+    let refresh = match creds.refresh_token {
+        Some(r) => { log::info!("found refresh token in keychain"); r }
+        None => { log::warn!("no refresh token in stored credentials"); return Err("NO_REFRESH_TOKEN".to_string()); }
+    };
     let client = state.api_client.clone();
     match api::refresh(&client, &refresh).await {
         Ok(data) => {
@@ -313,6 +372,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             ping,
+            register,
+            verify_email,
             login,
             login_mfa,
             refresh_token,

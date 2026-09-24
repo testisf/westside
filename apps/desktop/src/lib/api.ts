@@ -92,5 +92,5 @@ export async function apiFetch<T>(
       },
     };
   }
-  return { data: body as T };
+  return { data: (body as { data?: T })?.data ?? (body as T) };
 }

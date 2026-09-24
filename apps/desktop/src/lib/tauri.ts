@@ -1,11 +1,5 @@
 /**
  * Westside desktop — Tauri bridge.
- *
- * Wraps the `@tauri-apps/api` `invoke` calls so the React frontend talks
- * to the Rust core via typed functions, not raw strings.
- *
- * Uses the official `isTauri()` from `@tauri-apps/api/core` which correctly
- * detects the Tauri 2 environment.
  */
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -32,6 +26,20 @@ export async function tauriLogin(identifier: string, password: string): Promise<
   return invoke<LoginResult>("login", { identifier, password });
 }
 
+export interface RegisterResult {
+  user_id: string;
+  verification_url: string | null;
+}
+
+export async function tauriRegister(email: string, username: string, password: string): Promise<RegisterResult> {
+  if (!isTauri()) throw new Error("NOT_IN_TAURI");
+  return invoke<RegisterResult>("register", { email, username, password });
+}
+
+export async function tauriVerifyEmail(token: string): Promise<void> {
+  if (!isTauri()) throw new Error("NOT_IN_TAURI");
+  await invoke<void>("verify_email", { token });
+}
 export async function tauriLoginMfa(ticket: string, code: string): Promise<LoginResult> {
   if (!isTauri()) throw new Error("NOT_IN_TAURI");
   return invoke<LoginResult>("login_mfa", { ticket, code });
@@ -87,18 +95,12 @@ export async function tauriSetPttAccelerator(accelerator: string): Promise<void>
   await invoke<void>("set_ptt_accelerator", { accelerator });
 }
 
-/** Listen for PTT pressed/released events from the global hotkey module. */
 export async function onPttEvent(
   handler: (event: "pressed" | "released") => void,
 ): Promise<UnlistenFn> {
   if (!isTauri()) {
-    // Browser fallback: listen for Space keydown/up
-    const down = (e: KeyboardEvent) => {
-      if (e.code === "Space") handler("pressed");
-    };
-    const up = (e: KeyboardEvent) => {
-      if (e.code === "Space") handler("released");
-    };
+    const down = (e: KeyboardEvent) => { if (e.code === "Space") handler("pressed"); };
+    const up = (e: KeyboardEvent) => { if (e.code === "Space") handler("released"); };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     return (async () => {
@@ -114,7 +116,6 @@ export async function onPttEvent(
   }) as unknown as UnlistenFn;
 }
 
-/** Listen for update-available events from the Tauri updater. */
 export async function onUpdateAvailable(
   handler: (info: { version: string; date: string; body: string }) => void,
 ): Promise<UnlistenFn> {

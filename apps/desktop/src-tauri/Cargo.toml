@@ -24,7 +24,7 @@ tauri-plugin-clipboard-manager = "2.0"
 tauri-plugin-global-shortcut = "2.0"
 
 # Secure storage — OS keychain on Windows / macOS / Linux
-keyring = "3.6"
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native-sync-persistent"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
