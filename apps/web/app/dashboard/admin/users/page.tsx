@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { useMemo, useState } from "react";
+import { EmptyState, Input, ListSkeleton, NoAccess, Notice, PageHeader, Panel, Status, statusTone } from "@/components/ui";
+import { errorMessage } from "@/lib/api";
+import { formatDate, timeAgo } from "@/lib/format";
+import { useApi } from "@/lib/use-api";
 
 interface User {
   id: string;
@@ -14,74 +17,94 @@ interface User {
 }
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, error, loading } = useApi<User[]>("/api/v1/users?limit=100");
+  const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      const res = await apiFetch<User[]>("/api/v1/users?limit=100");
-      if (res.error) setError(res.error.message);
-      else setUsers(res.data ?? []);
-      setLoading(false);
-    })();
-  }, []);
+  const users = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data ?? []).filter((u) => !q || `${u.username} ${u.email}`.toLowerCase().includes(q));
+  }, [data, query]);
 
-  if (loading) return <div className="p-6 text-text-muted text-sm">Loading users…</div>;
+  if (error?.code === "RBAC_FORBIDDEN") {
+    return (
+      <>
+        <PageHeader title="Users" />
+        <NoAccess what="The user list" />
+      </>
+    );
+  }
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold mb-1">Users</h1>
-      <p className="text-sm text-text-muted mb-6">All accounts across the platform.</p>
+    <>
+      <PageHeader title="Users" description="Every account on the platform." />
 
-      {error && (
-        <div className="mb-4 text-sm text-danger bg-danger/10 border border-danger/20 rounded-md px-3 py-2">
-          {error}
-        </div>
-      )}
-
-      {users.length === 0 ? (
-        <div className="bg-surface border border-border rounded-xl p-8 text-center text-sm text-text-muted">
-          No users found.
-        </div>
+      {loading ? (
+        <ListSkeleton rows={8} />
+      ) : error ? (
+        <Notice tone="danger">{errorMessage(error)}</Notice>
       ) : (
-        <div className="bg-surface border border-border rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-bg-subtle text-text-muted text-xs uppercase">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium">Username</th>
-                <th className="text-left px-4 py-2 font-medium">Email</th>
-                <th className="text-left px-4 py-2 font-medium">Status</th>
-                <th className="text-left px-4 py-2 font-medium">Verified</th>
-                <th className="text-left px-4 py-2 font-medium">Last login</th>
-                <th className="text-left px-4 py-2 font-medium">Created</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {users.map((u) => (
-                <tr key={u.id} className="hover:bg-surface-hover">
-                  <td className="px-4 py-2 font-medium">{u.username}</td>
-                  <td className="px-4 py-2 text-text-muted">{u.email}</td>
-                  <td className="px-4 py-2">
-                    <span className={`text-xs px-2 py-0.5 rounded ${
-                      u.status === "active" ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
-                    }`}>{u.status}</span>
-                  </td>
-                  <td className="px-4 py-2 text-text-muted text-xs">
-                    {u.emailVerified ? "✓" : "—"}
-                  </td>
-                  <td className="px-4 py-2 text-text-muted text-xs">
-                    {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "never"}
-                  </td>
-                  <td className="px-4 py-2 text-text-muted text-xs">
-                    {new Date(u.createdAt).toLocaleDateString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <div className="w-full max-w-xs">
+              <Input
+                type="search"
+                placeholder="Search by username or email"
+                aria-label="Search users"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            <p className="shrink-0 text-[13px] text-text-muted">
+              {users.length === (data?.length ?? 0) ? `${users.length} users` : `${users.length} of ${data?.length}`}
+            </p>
+          </div>
+
+          {users.length === 0 ? (
+            <EmptyState title={query ? "No users match that search" : "No users yet"} />
+          ) : (
+            <Panel>
+              <table className="w-full text-left">
+                <thead className="border-b bg-bg-subtle text-xs text-text-muted">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">User</th>
+                    <th className="w-28 px-3 py-2 font-medium">Status</th>
+                    <th className="hidden w-32 px-3 py-2 font-medium md:table-cell">Verified</th>
+                    <th className="hidden w-36 px-3 py-2 font-medium sm:table-cell">Last sign-in</th>
+                    <th className="hidden w-32 px-3 py-2 font-medium lg:table-cell">Joined</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {users.map((u) => (
+                    <tr key={u.id} className="transition-colors hover:bg-surface-hover">
+                      <td className="max-w-0 px-3 py-2.5">
+                        <span className="block truncate font-medium">{u.username}</span>
+                        <span className="block truncate text-xs text-text-muted">{u.email}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Status tone={statusTone(u.status)}>{u.status}</Status>
+                      </td>
+                      <td className="hidden px-3 py-2.5 md:table-cell">
+                        <Status tone={u.emailVerified ? "ok" : "warn"}>
+                          {u.emailVerified ? "Verified" : "Unverified"}
+                        </Status>
+                      </td>
+                      <td
+                        className="hidden px-3 py-2.5 tabular-nums text-text-muted sm:table-cell"
+                        title={u.lastLoginAt ?? undefined}
+                      >
+                        {timeAgo(u.lastLoginAt)}
+                      </td>
+                      <td className="hidden px-3 py-2.5 tabular-nums text-text-muted lg:table-cell">
+                        {formatDate(u.createdAt)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Panel>
+          )}
+        </>
       )}
-    </div>
+    </>
   );
 }

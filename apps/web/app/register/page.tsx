@@ -1,100 +1,173 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { apiFetch } from "@/lib/api";
+import { AuthLayout } from "@/components/AuthLayout";
+import { Icon } from "@/components/icons";
+import { Button, Field, Input, LinkButton, Notice } from "@/components/ui";
+import { apiFetch, errorMessage, fieldErrors } from "@/lib/api";
+import { useSession } from "@/lib/session";
+
+interface RegisterPayload {
+  userId: string;
+  email: string;
+  username: string;
+  verificationUrl?: string | null;
+}
+
+/** Mirrors the server's password rules so people see what's missing before submitting. */
+function passwordChecks(pw: string) {
+  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^a-zA-Z0-9]/].filter((re) => re.test(pw)).length;
+  return [
+    { ok: pw.length >= 12, label: "At least 12 characters" },
+    { ok: classes >= 3, label: "3 of: lowercase, uppercase, number, symbol" },
+    { ok: pw.length > 0 && !/\s/.test(pw), label: "No spaces" },
+  ];
+}
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { state } = useSession();
+
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [created, setCreated] = useState<RegisterPayload | null>(null);
+
+  const checks = useMemo(() => passwordChecks(password), [password]);
+
+  useEffect(() => {
+    if (state.status === "authenticated") router.replace("/dashboard");
+  }, [state.status, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
+    setBusy(true);
     setError(null);
-    setVerificationUrl(null);
-    const res = await apiFetch<{ verificationUrl?: string | null; userId: string }>(
+    setErrors({});
+    const res = await apiFetch<RegisterPayload>(
       "/api/v1/auth/register",
-      { method: "POST", body: JSON.stringify({ email, username, password }) },
+      { method: "POST", body: JSON.stringify({ email: email.trim(), username: username.trim(), password }) },
+      { auth: false },
     );
-    setLoading(false);
-    if (res.error) {
-      setError(res.error.message);
-      return;
-    }
-    if (res.data?.verificationUrl) {
-      // Dev only — Phase 2 will send the link via email.
-      setVerificationUrl(res.data.verificationUrl);
-    } else {
-      router.push("/login");
-    }
+    setBusy(false);
+    if (res.data) return setCreated(res.data);
+
+    const fields = fieldErrors(res.error);
+    if (Object.keys(fields).length) setErrors(fields);
+    else setError(errorMessage(res.error));
+  }
+
+  if (created) {
+    return (
+      <AuthLayout title="Verify your email" subtitle={`We created the account for ${created.email}.`}>
+        <div className="space-y-4">
+          {created.verificationUrl ? (
+            <Notice tone="warning" title="Development mode">
+              Email isn&rsquo;t sent yet, so the verification link is shown here.
+              <div className="mt-2 break-all font-mono text-xs">
+                <a href={created.verificationUrl} className="text-primary underline">
+                  {created.verificationUrl}
+                </a>
+              </div>
+            </Notice>
+          ) : (
+            <p className="text-text-muted">
+              Open the link in the message we sent to confirm your address. You can sign in once
+              it&rsquo;s verified.
+            </p>
+          )}
+          <LinkButton href="/login">Go to sign in</LinkButton>
+        </div>
+      </AuthLayout>
+    );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg-subtle px-4">
-      <div className="w-full max-w-sm">
-        <div className="bg-surface border border-border rounded-2xl p-8 shadow-sm">
-          <div className="mb-8">
-            <div className="h-9 w-9 rounded-lg bg-primary flex items-center justify-center mb-4">
-              <span className="text-primary-foreground font-bold text-lg">W</span>
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight">Create your account</h1>
-            <p className="text-sm text-text-muted mt-1">Register to join a Westside community.</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1.5" htmlFor="email">Email</label>
-              <input id="email" type="email" autoComplete="email" required value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5" htmlFor="username">Username</label>
-              <input id="username" type="text" autoComplete="username" required value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5" htmlFor="password">Password</label>
-              <input id="password" type="password" autoComplete="new-password" required value={password}
+    <AuthLayout
+      title="Create an account"
+      subtitle="You'll join servers and get access from a server owner."
+      footer={
+        <>
+          Already registered?{" "}
+          <Link href="/login" className="text-primary hover:underline">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && <Notice tone="danger">{error}</Notice>}
+        <Field label="Email" error={errors.email}>
+          {(p) => (
+            <Input
+              {...p}
+              type="email"
+              required
+              autoFocus
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field
+          label="Username"
+          error={errors.username}
+          hint="3–32 characters: letters, numbers, dots, dashes, underscores."
+        >
+          {(p) => (
+            <Input
+              {...p}
+              type="text"
+              required
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label="Password" error={errors.password}>
+          {(p) => (
+            <>
+              <Input
+                {...p}
+                type="password"
+                required
+                autoComplete="new-password"
+                value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
-              <p className="text-xs text-text-muted mt-1.5">Min 12 chars, including 3 of {`{lowercase, uppercase, digit, symbol}`}.</p>
-            </div>
-
-            {error && (
-              <div className="text-sm text-danger bg-danger/10 border border-danger/20 rounded-md px-3 py-2">
-                {error}
-              </div>
-            )}
-
-            {verificationUrl && (
-              <div className="text-sm text-success bg-success/10 border border-success/20 rounded-md px-3 py-2">
-                <div className="font-medium mb-1">Account created (dev mode).</div>
-                <div className="text-xs">Verify your email:</div>
-                <a href={verificationUrl} className="text-xs underline">{verificationUrl}</a>
-              </div>
-            )}
-
-            <button type="submit" disabled={loading}
-              className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground font-medium text-sm rounded-md py-2 px-4 transition">
-              {loading ? "Creating…" : "Create account"}
-            </button>
-          </form>
-
-          <div className="mt-6 text-sm text-text-muted text-center">
-            Already have an account?{" "}
-            <Link href="/login" className="text-primary hover:underline">Sign in</Link>
-          </div>
-        </div>
-      </div>
-    </div>
+              />
+              <ul className="mt-2 space-y-0.5 text-xs" aria-live="polite">
+                {checks.map((c) => (
+                  <li
+                    key={c.label}
+                    className={`flex items-center gap-1.5 ${c.ok ? "text-success" : "text-text-muted"}`}
+                  >
+                    {c.ok ? (
+                      <Icon name="check" size={12} />
+                    ) : (
+                      <span className="flex h-3 w-3 items-center justify-center" aria-hidden="true">
+                        <span className="h-1 w-1 rounded-full bg-text-faint" />
+                      </span>
+                    )}
+                    {c.label}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Field>
+        <Button type="submit" variant="primary" loading={busy} className="w-full">
+          {busy ? "Creating account…" : "Create account"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }

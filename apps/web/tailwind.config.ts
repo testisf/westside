@@ -1,11 +1,11 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: "class",
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        // Westside palette — original design system.
+        // Westside palette. Values live in globals.css so light/dark share names.
         bg: {
           DEFAULT: "rgb(var(--bg) / <alpha-value>)",
           subtle: "rgb(var(--bg-subtle) / <alpha-value>)",
@@ -22,19 +22,29 @@ export default {
         text: {
           DEFAULT: "rgb(var(--text) / <alpha-value>)",
           muted: "rgb(var(--text-muted) / <alpha-value>)",
+          faint: "rgb(var(--text-faint) / <alpha-value>)",
         },
         primary: {
           DEFAULT: "rgb(var(--primary) / <alpha-value>)",
           hover: "rgb(var(--primary-hover) / <alpha-value>)",
           foreground: "rgb(var(--primary-foreground) / <alpha-value>)",
         },
-        danger: "rgb(var(--danger) / <alpha-value>)",
+        danger: {
+          DEFAULT: "rgb(var(--danger) / <alpha-value>)",
+          foreground: "rgb(var(--danger-foreground) / <alpha-value>)",
+        },
         success: "rgb(var(--success) / <alpha-value>)",
         warning: "rgb(var(--warning) / <alpha-value>)",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+        sans: ['"IBM Plex Sans"', "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
+        mono: ['"IBM Plex Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+      },
+      borderRadius: {
+        // Deliberately small. Controls 4px, panels and dialogs 6px.
+        DEFAULT: "4px",
+        md: "4px",
+        lg: "6px",
       },
     },
   },

@@ -44,6 +44,7 @@ export default fp(
         "Authorization",
         "Content-Type",
         "X-Requested-With",
+        "X-Mfa-Ticket",
         "X-Request-Id",
         "Idempotency-Key",
       ],

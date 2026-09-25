@@ -1,153 +1,197 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { Icon } from "@/components/icons";
+import {
+  Button, EmptyState, Field, Input, ListSkeleton, Modal, Notice, PageHeader, Panel, Status, statusTone, Textarea,
+} from "@/components/ui";
+import { apiFetch, errorMessage, fieldErrors } from "@/lib/api";
+import { formatDate, slugify } from "@/lib/format";
+import { useSession } from "@/lib/session";
+import { useApi } from "@/lib/use-api";
 
 interface Server {
   id: string;
   name: string;
   slug: string;
   description: string | null;
-  robloxPlaceId: string | null;
   status: string;
   isOwner: boolean;
   createdAt: string;
 }
 
 export default function ServersPage() {
-  const [servers, setServers] = useState<Server[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { can } = useSession();
+  const { data, error, loading } = useApi<Server[]>("/api/v1/servers");
+  const [creating, setCreating] = useState(false);
+  const canCreate = can("server.create");
 
-  // Create form state
-  const [showForm, setShowForm] = useState(false);
+  const newServer = canCreate && (
+    <Button variant="primary" onClick={() => setCreating(true)}>
+      <Icon name="plus" size={14} />
+      New server
+    </Button>
+  );
+
+  return (
+    <>
+      <PageHeader
+        title="Servers"
+        description="Each server is one ERLC community you own or belong to."
+        actions={newServer || undefined}
+      />
+
+      {loading ? (
+        <ListSkeleton />
+      ) : error ? (
+        <Notice tone="danger">{errorMessage(error)}</Notice>
+      ) : !data || data.length === 0 ? (
+        <EmptyState
+          title="No servers yet"
+          action={newServer || undefined}
+        >
+          {canCreate
+            ? "Create one for your community, or ask its owner to add you to theirs."
+            : "Ask a server owner to add you to their community."}
+        </EmptyState>
+      ) : (
+        <Panel>
+          <table className="w-full text-left">
+            <thead className="border-b bg-bg-subtle text-xs text-text-muted">
+              <tr>
+                <th className="px-3 py-2 font-medium">Server</th>
+                <th className="hidden w-28 px-3 py-2 font-medium sm:table-cell">Access</th>
+                <th className="w-32 px-3 py-2 font-medium">Status</th>
+                <th className="hidden w-36 px-3 py-2 font-medium md:table-cell">Created</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {data.map((s) => (
+                <tr key={s.id} className="transition-colors hover:bg-surface-hover">
+                  <td className="max-w-0 px-3 py-2.5">
+                    <Link href={`/dashboard/servers/${s.id}`} className="block truncate font-medium text-primary hover:underline">
+                      {s.name}
+                    </Link>
+                    <span className="block truncate font-mono text-xs text-text-muted">{s.slug}</span>
+                  </td>
+                  <td className="hidden px-3 py-2.5 text-text-muted sm:table-cell">
+                    {s.isOwner ? "Owner" : "Member"}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Status tone={statusTone(s.status)}>{s.status}</Status>
+                  </td>
+                  <td className="hidden px-3 py-2.5 tabular-nums text-text-muted md:table-cell">
+                    {formatDate(s.createdAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+      )}
+
+      <CreateServerDialog open={creating} onClose={() => setCreating(false)} />
+    </>
+  );
+}
+
+function CreateServerDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <Modal open={open} onClose={onClose} title="New server" description="You'll be the owner and can invite others afterwards.">
+      <CreateServerForm onClose={onClose} />
+    </Modal>
+  );
+}
+
+function CreateServerForm({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [slugEdited, setSlugEdited] = useState(false);
   const [description, setDescription] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  async function load() {
-    setLoading(true);
-    const res = await apiFetch<Server[]>("/api/v1/servers");
-    if (res.error) setError(res.error.message);
-    else setServers(res.data ?? []);
-    setLoading(false);
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function handleCreate(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setCreating(true);
+    setBusy(true);
     setError(null);
+    setErrors({});
     const res = await apiFetch<Server>("/api/v1/servers", {
       method: "POST",
-      body: JSON.stringify({ name, slug, description: description || undefined }),
+      body: JSON.stringify({ name: name.trim(), slug, description: description.trim() || undefined }),
     });
-    setCreating(false);
-    if (res.error) { setError(res.error.message); return; }
-    setName(""); setSlug(""); setDescription("");
-    setShowForm(false);
-    await load();
-  }
-
-  async function handleJoin(serverId: string) {
-    await apiFetch(`/api/v1/servers/${serverId}/members`, { method: "POST" });
-    await load();
-  }
-
-  if (loading) {
-    return <div className="p-6 text-text-muted text-sm">Loading servers…</div>;
+    if (res.data) {
+      onClose();
+      router.push(`/dashboard/servers/${res.data.id}`);
+      return;
+    }
+    setBusy(false);
+    if (res.error?.code === "CONFLICT") setErrors({ slug: "That slug is already taken." });
+    else if (Object.keys(fieldErrors(res.error)).length) setErrors(fieldErrors(res.error));
+    else setError(errorMessage(res.error));
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold">Servers</h1>
-          <p className="text-sm text-text-muted mt-1">Each server is one ERLC community you belong to.</p>
-        </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="bg-primary hover:bg-primary-hover text-primary-foreground text-sm font-medium rounded-md px-4 py-2"
-        >
-          {showForm ? "Cancel" : "New server"}
-        </button>
+    <form onSubmit={submit} className="space-y-4">
+      {error && <Notice tone="danger">{error}</Notice>}
+      <Field label="Name" error={errors.name}>
+        {(p) => (
+          <Input
+            {...p}
+            autoFocus
+            required
+            minLength={3}
+            maxLength={120}
+            placeholder="Liberty County Roleplay"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (!slugEdited) setSlug(slugify(e.target.value));
+            }}
+          />
+        )}
+      </Field>
+      <Field label="Slug" error={errors.slug} hint="Used in links. Lowercase letters, numbers and hyphens.">
+        {(p) => (
+          <Input
+            {...p}
+            mono
+            required
+            minLength={3}
+            maxLength={60}
+            pattern="[a-z0-9\-]+"
+            spellCheck={false}
+            value={slug}
+            onChange={(e) => {
+              setSlugEdited(true);
+              setSlug(e.target.value.toLowerCase());
+            }}
+          />
+        )}
+      </Field>
+      <Field label="Description" optional error={errors.description}>
+        {(p) => (
+          <Textarea
+            {...p}
+            rows={3}
+            maxLength={2000}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        )}
+      </Field>
+      <div className="flex justify-end gap-2 pt-1">
+        <Button onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="primary" loading={busy}>
+          Create server
+        </Button>
       </div>
-
-      {error && (
-        <div className="mb-4 text-sm text-danger bg-danger/10 border border-danger/20 rounded-md px-3 py-2">
-          {error}
-        </div>
-      )}
-
-      {showForm && (
-        <form onSubmit={handleCreate} className="mb-6 bg-surface border border-border rounded-xl p-5 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1.5">Name</label>
-              <input required value={name} onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">Slug</label>
-              <input required value={slug} onChange={(e) => setSlug(e.target.value)}
-                placeholder="my-community"
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm font-mono" />
-              <p className="text-xs text-text-muted mt-1">Lowercase letters, digits, hyphens.</p>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Description</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
-              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm" />
-          </div>
-          <button type="submit" disabled={creating}
-            className="bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground text-sm font-medium rounded-md px-4 py-2">
-            {creating ? "Creating…" : "Create server"}
-          </button>
-        </form>
-      )}
-
-      {servers.length === 0 ? (
-        <div className="bg-surface border border-border rounded-xl p-8 text-center text-sm text-text-muted">
-          No servers yet. Create one above to get started.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {servers.map((s) => (
-            <div key={s.id} className="bg-surface border border-border rounded-xl p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="font-semibold text-base">{s.name}</h3>
-                  <code className="text-xs text-text-muted">{s.slug}</code>
-                </div>
-                <span className={`text-xs px-2 py-0.5 rounded ${
-                  s.status === "active" ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
-                }`}>{s.status}</span>
-              </div>
-              {s.description && <p className="text-sm text-text-muted mt-2">{s.description}</p>}
-              <div className="flex items-center gap-3 mt-4 text-xs text-text-muted">
-                {s.isOwner && <span className="text-primary font-medium">Owner</span>}
-                <span>Created {new Date(s.createdAt).toLocaleDateString()}</span>
-              </div>
-              <div className="mt-4 flex gap-2">
-                <Link href={`/dashboard/servers/${s.id}`}
-                  className="text-xs border border-border rounded-md px-3 py-1.5 hover:bg-surface-hover">
-                  Open →
-                </Link>
-                {!s.isOwner && (
-                  <button onClick={() => handleJoin(s.id)}
-                    className="text-xs border border-border rounded-md px-3 py-1.5 hover:bg-surface-hover">
-                    Refresh membership
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    </form>
   );
 }

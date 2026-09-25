@@ -1,101 +1,187 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { apiFetch } from "@/lib/api";
+import { AuthLayout } from "@/components/AuthLayout";
+import { Button, Field, Input, Notice } from "@/components/ui";
+import { apiFetch, errorMessage } from "@/lib/api";
+import { useSession } from "@/lib/session";
+
+interface LoginPayload {
+  accessToken: string;
+  accessTokenExpiresAt: string;
+}
 
 export default function LoginPage() {
   const router = useRouter();
+  const { state, signIn } = useSession();
+
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [mfaTicket, setMfaTicket] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
+  // Someone with a live session doesn't need this page.
+  useEffect(() => {
+    if (state.status === "authenticated") router.replace("/dashboard");
+  }, [state.status, router]);
+
+  async function finish(payload: LoginPayload) {
+    await signIn(payload.accessToken, payload.accessTokenExpiresAt);
+    router.replace("/dashboard");
+  }
+
+  async function handleCredentials(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
+    setBusy(true);
     setError(null);
-    const res = await apiFetch<{ user: { id: string; username: string } }>("/api/v1/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ identifier, password }),
-    });
-    setLoading(false);
-    if (res.error) {
-      setError(res.error.message);
+    const res = await apiFetch<LoginPayload>(
+      "/api/v1/auth/login",
+      { method: "POST", body: JSON.stringify({ identifier: identifier.trim(), password }) },
+      { auth: false },
+    );
+    if (res.data) return finish(res.data);
+    setBusy(false);
+
+    if (res.error?.code === "AUTH_MFA_REQUIRED" && res.error.details?.ticket) {
+      setMfaTicket(res.error.details.ticket);
+      setCode("");
       return;
     }
-    router.push("/dashboard");
+    setError(errorMessage(res.error));
+  }
+
+  async function handleCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mfaTicket) return;
+    setBusy(true);
+    setError(null);
+    const res = await apiFetch<LoginPayload>(
+      "/api/v1/auth/login/mfa",
+      { method: "POST", body: JSON.stringify({ ticket: mfaTicket, code }) },
+      { auth: false },
+    );
+    if (res.data) return finish(res.data);
+    setBusy(false);
+
+    if (res.error?.code === "AUTH_TOKEN_INVALID") {
+      // The ticket is short-lived; the only way forward is to start over.
+      setMfaTicket(null);
+      setPassword("");
+      setError("That sign-in attempt timed out. Enter your password again.");
+      return;
+    }
+    setError(errorMessage(res.error));
+  }
+
+  if (mfaTicket) {
+    return (
+      <AuthLayout
+        title="Enter your code"
+        subtitle="Open your authenticator app and enter the 6-digit code for Westside."
+        footer={
+          <button
+            type="button"
+            className="text-primary hover:underline"
+            onClick={() => {
+              setMfaTicket(null);
+              setPassword("");
+              setError(null);
+            }}
+          >
+            Use a different account
+          </button>
+        }
+      >
+        <form onSubmit={handleCode} className="space-y-4" noValidate>
+          {error && <Notice tone="danger">{error}</Notice>}
+          <Field label="Authentication code">
+            {(p) => (
+              <Input
+                {...p}
+                mono
+                autoFocus
+                required
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                pattern="\d{6}"
+                placeholder="123456"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                className="tracking-[0.3em]"
+              />
+            )}
+          </Field>
+          <Button type="submit" variant="primary" loading={busy} disabled={code.length !== 6} className="w-full">
+            Verify and sign in
+          </Button>
+        </form>
+      </AuthLayout>
+    );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg-subtle px-4">
-      <div className="w-full max-w-sm">
-        <div className="bg-surface border border-border rounded-2xl p-8 shadow-sm">
-          <div className="mb-8">
-            <div className="h-9 w-9 rounded-lg bg-primary flex items-center justify-center mb-4">
-              <span className="text-primary-foreground font-bold text-lg">W</span>
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight">Sign in to Westside</h1>
-            <p className="text-sm text-text-muted mt-1">Enter your email or username and password.</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1.5" htmlFor="identifier">
-                Email or username
-              </label>
-              <input
-                id="identifier"
-                type="text"
-                autoComplete="username"
+    <AuthLayout
+      title="Sign in"
+      subtitle="Use the email or username you registered with."
+      footer={
+        <>
+          New to Westside?{" "}
+          <Link href="/register" className="text-primary hover:underline">
+            Create an account
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={handleCredentials} className="space-y-4">
+        {error && <Notice tone="danger">{error}</Notice>}
+        <Field label="Email or username">
+          {(p) => (
+            <Input
+              {...p}
+              type="text"
+              autoFocus
+              required
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label="Password">
+          {(p) => (
+            <div className="relative">
+              <Input
+                {...p}
+                type={showPassword ? "text" : "password"}
                 required
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5" htmlFor="password">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
                 autoComplete="current-password"
-                required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition"
+                className="pr-14"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                className="absolute inset-y-0 right-0 px-2.5 text-xs text-text-muted hover:text-text"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
             </div>
-
-            {error && (
-              <div className="text-sm text-danger bg-danger/10 border border-danger/20 rounded-md px-3 py-2">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground font-medium text-sm rounded-md py-2 px-4 transition"
-            >
-              {loading ? "Signing in…" : "Sign in"}
-            </button>
-          </form>
-
-          <div className="mt-6 text-sm text-text-muted text-center">
-            Need an account?{" "}
-            <Link href="/register" className="text-primary hover:underline">
-              Create one
-            </Link>
-          </div>
-        </div>
-        <p className="text-center text-xs text-text-muted mt-4">
-          Westside · v0.1.0
-        </p>
-      </div>
-    </div>
+          )}
+        </Field>
+        <Button type="submit" variant="primary" loading={busy} className="w-full">
+          {busy ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }

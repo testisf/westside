@@ -1,17 +1,25 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import "@fontsource/ibm-plex-sans/latin-400.css";
+import "@fontsource/ibm-plex-sans/latin-500.css";
+import "@fontsource/ibm-plex-sans/latin-600.css";
+import "@fontsource/ibm-plex-mono/latin-400.css";
+import "@fontsource/ibm-plex-mono/latin-500.css";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+import { SessionProvider } from "@/lib/session";
 
 export const metadata: Metadata = {
-  title: "Westside",
+  title: { default: "Westside", template: "%s · Westside" },
   description: "Communications platform for ERLC communities",
   robots: { index: false, follow: false },
 };
 
-// Inline script that sets the dark-mode class before paint, avoiding FOUC.
-// Reads from localStorage; defaults to system preference.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
+// Sets the dark-mode class before first paint so there is no flash.
+// Reads the saved choice from localStorage and falls back to the system setting.
 const themeScript = `
   (function() {
     try {
@@ -31,8 +39,8 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className={`${inter.variable} font-sans antialiased`}>
-        {children}
+      <body className="font-sans">
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );

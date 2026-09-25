@@ -3,48 +3,65 @@
 @tailwind utilities;
 
 :root {
-  /* Light mode (default) */
-  --bg: 248 250 252;
-  --bg-subtle: 241 245 249;
-  --bg-muted: 226 232 240;
+  color-scheme: light;
+
+  --bg: 245 246 247;
+  --bg-subtle: 238 240 242;
+  --bg-muted: 228 231 235;
   --surface: 255 255 255;
-  --surface-hover: 248 250 252;
-  --border: 226 232 240;
-  --border-strong: 203 213 225;
-  --text: 15 23 42;
-  --text-muted: 100 116 139;
-  --primary: 14 165 233;
-  --primary-hover: 2 132 199;
+  --surface-hover: 247 248 249;
+  --border: 224 227 231;
+  --border-strong: 200 205 212;
+  --text: 22 25 29;
+  --text-muted: 91 99 110;
+  --text-faint: 134 142 152;
+
+  --primary: 36 95 176;
+  --primary-hover: 28 79 149;
   --primary-foreground: 255 255 255;
-  --danger: 220 38 38;
-  --success: 22 163 74;
-  --warning: 217 119 6;
+
+  --danger: 180 35 24;
+  --danger-foreground: 255 255 255;
+  --success: 26 122 68;
+  --warning: 146 93 10;
 }
 
 html.dark {
-  /* Dark mode */
-  --bg: 2 6 23;
-  --bg-subtle: 15 23 42;
-  --bg-muted: 30 41 59;
-  --surface: 15 23 42;
-  --surface-hover: 30 41 59;
-  --border: 30 41 59;
-  --border-strong: 51 65 85;
-  --text: 241 245 249;
-  --text-muted: 148 163 184;
-  --primary: 56 189 248;
-  --primary-hover: 125 211 252;
-  --primary-foreground: 2 6 23;
-  --danger: 248 113 113;
-  --success: 74 222 128;
-  --warning: 251 191 36;
+  color-scheme: dark;
+
+  --bg: 15 17 20;
+  --bg-subtle: 26 30 35;
+  --bg-muted: 38 43 50;
+  --surface: 21 24 28;
+  --surface-hover: 28 32 37;
+  --border: 40 46 54;
+  --border-strong: 58 66 76;
+  --text: 230 232 235;
+  --text-muted: 154 162 173;
+  --text-faint: 110 118 129;
+
+  --primary: 107 161 236;
+  --primary-hover: 138 181 242;
+  --primary-foreground: 11 22 38;
+
+  --danger: 240 119 109;
+  --danger-foreground: 40 10 8;
+  --success: 95 192 132;
+  --warning: 224 169 74;
 }
 
-html, body {
+html {
+  background-color: rgb(var(--bg));
+}
+
+body {
+  min-height: 100vh;
   background-color: rgb(var(--bg));
   color: rgb(var(--text));
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 * {
@@ -52,5 +69,32 @@ html, body {
 }
 
 ::selection {
-  background: rgb(var(--primary) / 0.25);
+  background: rgb(var(--primary) / 0.22);
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--primary));
+  outline-offset: 2px;
+}
+
+/* Inputs draw their own focus treatment (border + ring), so skip the outline. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+}
+
+dialog {
+  color: rgb(var(--text));
+}
+
+dialog::backdrop {
+  background: rgb(8 10 13 / 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

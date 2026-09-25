@@ -1,163 +1,404 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import QRCode from "qrcode";
+import {
+  Button, ConfirmDialog, CopyButton, EmptyState, Field, Input, Modal, Notice, PageHeader, Panel, Section, Skeleton,
+  Status, Tag,
+} from "@/components/ui";
+import { apiFetch, errorMessage } from "@/lib/api";
+import { describeUserAgent, formatDate, timeAgo } from "@/lib/format";
+import { useMe, useSession } from "@/lib/session";
+import { useApi } from "@/lib/use-api";
 
-interface EnrollResponse {
+export default function SecuritySettingsPage() {
+  return (
+    <>
+      <PageHeader title="Security" description="How you sign in, and where you're signed in." />
+      <div className="max-w-2xl space-y-12">
+        <TwoFactor />
+        <Sessions />
+      </div>
+    </>
+  );
+}
+
+/* ---------- Two-factor authentication ---------- */
+
+interface Enrollment {
   uri: string;
   ticket: string;
 }
 
-export default function SecuritySettingsPage() {
-  const [mfaEnabled, setMfaEnabled] = useState(false);
-  const [loading, setLoading] = useState(true);
+/** The base32 secret inside an otpauth:// URI, grouped for reading aloud or typing. */
+function manualKey(uri: string): string {
+  try {
+    const secret = new URL(uri).searchParams.get("secret") ?? "";
+    return secret.replace(/(.{4})/g, "$1 ").trim();
+  } catch {
+    return "";
+  }
+}
 
-  // Enrollment state
-  const [enrollUri, setEnrollUri] = useState<string | null>(null);
-  const [enrollTicket, setEnrollTicket] = useState<string | null>(null);
-  const [code, setCode] = useState("");
+function TwoFactor() {
+  const me = useMe();
+  const { reload } = useSession();
+  const enabled = me.user.mfaEnabled;
+
+  const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [disabling, setDisabling] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  // Disable state
-  const [disablePassword, setDisablePassword] = useState("");
-  const [disableCode, setDisableCode] = useState("");
-  const [showDisable, setShowDisable] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const res = await apiFetch<{ user: { mfaEnabled: boolean } }>("/api/v1/auth/me");
-      if (res.data) setMfaEnabled(res.data.user.mfaEnabled);
-      setLoading(false);
-    })();
-  }, []);
-
-  async function handleEnroll() {
-    setBusy(true); setError(null);
-    const res = await apiFetch<EnrollResponse>("/api/v1/auth/mfa/enroll", { method: "POST" });
-    setBusy(false);
-    if (res.error || !res.data) { setError(res.error?.message ?? "Enrollment failed"); return; }
-    setEnrollUri(res.data.uri);
-    setEnrollTicket(res.data.ticket);
+  async function start() {
+    setStarting(true);
+    setError(null);
+    const res = await apiFetch<Enrollment>("/api/v1/auth/mfa/enroll", { method: "POST" });
+    setStarting(false);
+    if (res.data) setEnrollment(res.data);
+    else setError(errorMessage(res.error));
   }
-
-  async function handleConfirm(e: React.FormEvent) {
-    e.preventDefault();
-    if (!enrollTicket) return;
-    setBusy(true); setError(null);
-    const res = await apiFetch<{ enabled: boolean }>("/api/v1/auth/mfa/confirm", {
-      method: "POST",
-      headers: { "X-Mfa-Ticket": enrollTicket },
-      body: JSON.stringify({ code }),
-    });
-    setBusy(false);
-    if (res.error) { setError(res.error.message); return; }
-    setMfaEnabled(true);
-    setEnrollUri(null);
-    setEnrollTicket(null);
-    setCode("");
-  }
-
-  async function handleDisable(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true); setError(null);
-    const res = await apiFetch<{ disabled: boolean }>("/api/v1/auth/mfa/disable", {
-      method: "POST",
-      body: JSON.stringify({ password: disablePassword, code: disableCode }),
-    });
-    setBusy(false);
-    if (res.error) { setError(res.error.message); return; }
-    setMfaEnabled(false);
-    setDisablePassword(""); setDisableCode(""); setShowDisable(false);
-  }
-
-  if (loading) return <div className="p-6 text-text-muted text-sm">Loading…</div>;
 
   return (
-    <div className="p-6 max-w-2xl">
-      <h1 className="text-2xl font-semibold mb-1">Security</h1>
-      <p className="text-sm text-text-muted mb-6">Two-factor authentication and account security.</p>
+    <Section title="Two-factor authentication">
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0">
+          <p className="mb-1">
+            <Status tone={enabled ? "ok" : "off"}>{enabled ? "On" : "Off"}</Status>
+          </p>
+          <p className="max-w-md text-text-muted">
+            {enabled
+              ? "Signing in asks for a 6-digit code from your authenticator app after your password."
+              : "Ask for a 6-digit code from an authenticator app when you sign in, so a leaked password isn't enough."}
+          </p>
+        </div>
+        {!enrollment &&
+          (enabled ? (
+            <Button variant="danger" onClick={() => setDisabling(true)}>
+              Turn off
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={start} loading={starting}>
+              Set up
+            </Button>
+          ))}
+      </div>
 
       {error && (
-        <div className="mb-4 text-sm text-danger bg-danger/10 border border-danger/20 rounded-md px-3 py-2">
-          {error}
+        <div className="mt-4">
+          <Notice tone="danger">{error}</Notice>
         </div>
       )}
 
-      <div className="bg-surface border border-border rounded-xl p-5">
-        <div className="flex items-center justify-between mb-2">
-          <div>
-            <h2 className="font-semibold text-sm">Two-factor authentication (TOTP)</h2>
-            <p className="text-xs text-text-muted mt-1">
-              {mfaEnabled
-                ? "Enabled — a 6-digit code is required on every login."
-                : "Not enabled — add an extra layer of security to your account."}
-            </p>
-          </div>
-          <span className={`text-xs px-2 py-0.5 rounded ${
-            mfaEnabled ? "bg-success/10 text-success" : "bg-bg-muted text-text-muted"
-          }`}>
-            {mfaEnabled ? "On" : "Off"}
-          </span>
+      {enrollment && (
+        <Enroll
+          enrollment={enrollment}
+          onCancel={() => setEnrollment(null)}
+          onDone={async () => {
+            setEnrollment(null);
+            await reload();
+          }}
+        />
+      )}
+
+      <Modal
+        open={disabling}
+        onClose={() => setDisabling(false)}
+        title="Turn off two-factor authentication?"
+        description="Confirm with your password and a current code."
+      >
+        <DisableForm
+          onClose={() => setDisabling(false)}
+          onDone={async () => {
+            setDisabling(false);
+            await reload();
+          }}
+        />
+      </Modal>
+    </Section>
+  );
+}
+
+function Enroll({
+  enrollment,
+  onCancel,
+  onDone,
+}: {
+  enrollment: Enrollment;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const [svg, setSvg] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const key = manualKey(enrollment.uri);
+
+  useEffect(() => {
+    let live = true;
+    QRCode.toString(enrollment.uri, { type: "svg", margin: 0, errorCorrectionLevel: "M" }).then(
+      (s) => live && setSvg(s),
+      () => live && setSvg(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [enrollment.uri]);
+
+  async function confirm(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const res = await apiFetch("/api/v1/auth/mfa/confirm", {
+      method: "POST",
+      headers: { "X-Mfa-Ticket": enrollment.ticket },
+      body: JSON.stringify({ code }),
+    });
+    setBusy(false);
+    if (res.error) return setError(errorMessage(res.error));
+    onDone();
+  }
+
+  return (
+    <div className="mt-5 rounded-lg border bg-surface p-4 sm:p-5">
+      <div className="flex flex-col gap-5 sm:flex-row">
+        {/* QR codes need a light background to scan, in either theme. */}
+        <div className="h-[9.5rem] w-[9.5rem] shrink-0 rounded border bg-white p-2.5">
+          {svg ? (
+            <div className="h-full w-full [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: svg }} />
+          ) : (
+            <Skeleton className="h-full w-full bg-neutral-200" />
+          )}
         </div>
 
-        {!mfaEnabled && !enrollUri && (
-          <button onClick={handleEnroll} disabled={busy}
-            className="mt-3 bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground text-sm font-medium rounded-md px-4 py-2">
-            {busy ? "Starting…" : "Start enrollment"}
-          </button>
-        )}
+        <form onSubmit={confirm} className="min-w-0 flex-1 space-y-4">
+          <ol className="list-decimal space-y-1 pl-4 text-text-muted marker:text-text-faint">
+            <li>Scan the code with an authenticator app such as 1Password, Authy or Google Authenticator.</li>
+            <li>Enter the 6-digit code the app shows for Westside.</li>
+          </ol>
 
-        {enrollUri && (
-          <div className="mt-4 space-y-3">
-            <p className="text-xs text-text-muted">
-              Scan this URI with your authenticator app (Google Authenticator, Authy, 1Password, etc.),
-              then enter the 6-digit code it shows.
-            </p>
-            <code className="block text-xs bg-bg border border-border rounded p-2 break-all font-mono">
-              {enrollUri}
-            </code>
-            <form onSubmit={handleConfirm} className="flex gap-2">
-              <input value={code} onChange={(e) => setCode(e.target.value)}
-                placeholder="123456"
-                className="w-32 rounded-md border border-border bg-bg px-3 py-2 text-sm font-mono" />
-              <button type="submit" disabled={busy}
-                className="bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground text-sm font-medium rounded-md px-4 py-2">
-                Confirm
-              </button>
-            </form>
-          </div>
-        )}
-
-        {mfaEnabled && !showDisable && (
-          <button onClick={() => setShowDisable(true)}
-            className="mt-3 text-sm border border-danger/30 text-danger rounded-md px-4 py-2 hover:bg-danger/10">
-            Disable 2FA
-          </button>
-        )}
-
-        {mfaEnabled && showDisable && (
-          <form onSubmit={handleDisable} className="mt-4 space-y-3">
-            <p className="text-xs text-text-muted">Enter your password and a current 6-digit code to disable 2FA.</p>
-            <input type="password" value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)}
-              placeholder="Password" required
-              className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm" />
-            <input value={disableCode} onChange={(e) => setDisableCode(e.target.value)}
-              placeholder="123456" required
-              className="w-32 rounded-md border border-border bg-bg px-3 py-2 text-sm font-mono" />
-            <div className="flex gap-2">
-              <button type="submit" disabled={busy}
-                className="bg-danger text-white text-sm font-medium rounded-md px-4 py-2 hover:opacity-90 disabled:opacity-50">
-                {busy ? "Disabling…" : "Confirm disable"}
-              </button>
-              <button type="button" onClick={() => setShowDisable(false)}
-                className="text-sm border border-border rounded-md px-4 py-2">
-                Cancel
-              </button>
+          {key && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px]">
+              <span className="text-text-muted">Can&rsquo;t scan? Enter this key:</span>
+              <Tag>{key}</Tag>
+              <CopyButton value={key.replace(/\s/g, "")} />
             </div>
-          </form>
-        )}
+          )}
+
+          {error && <Notice tone="danger">{error}</Notice>}
+
+          <div className="flex items-end gap-2">
+            <div className="w-36">
+              <Field label="Code">
+                {(p) => (
+                  <Input
+                    {...p}
+                    mono
+                    autoFocus
+                    required
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    placeholder="123456"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                    className="tracking-[0.25em]"
+                  />
+                )}
+              </Field>
+            </div>
+            <Button type="submit" variant="primary" loading={busy} disabled={code.length !== 6}>
+              Turn on
+            </Button>
+            <Button onClick={onCancel} disabled={busy}>
+              Cancel
+            </Button>
+          </div>
+        </form>
       </div>
     </div>
+  );
+}
+
+function DisableForm({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const res = await apiFetch("/api/v1/auth/mfa/disable", {
+      method: "POST",
+      body: JSON.stringify({ password, code }),
+    });
+    setBusy(false);
+    if (res.error) return setError(errorMessage(res.error));
+    onDone();
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      {error && <Notice tone="danger">{error}</Notice>}
+      <Field label="Password">
+        {(p) => (
+          <Input
+            {...p}
+            type="password"
+            autoFocus
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="Authentication code">
+        {(p) => (
+          <Input
+            {...p}
+            mono
+            required
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            placeholder="123456"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            className="w-36 tracking-[0.25em]"
+          />
+        )}
+      </Field>
+      <div className="flex justify-end gap-2 pt-1">
+        <Button onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="dangerSolid" loading={busy} disabled={!password || code.length !== 6}>
+          Turn off 2FA
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/* ---------- Sessions ---------- */
+
+interface SessionRow {
+  id: string;
+  ip: string | null;
+  userAgent: string | null;
+  issuedAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+}
+
+function Sessions() {
+  const me = useMe();
+  const router = useRouter();
+  const { clear } = useSession();
+  const { data, error, loading, reload } = useApi<SessionRow[]>("/api/v1/auth/sessions");
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [confirmAll, setConfirmAll] = useState(false);
+  const [busyAll, setBusyAll] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const sessions = (data ?? [])
+    .filter((s) => !s.revokedAt)
+    .sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt));
+
+  async function revoke(id: string) {
+    setRevoking(id);
+    setActionError(null);
+    const res = await apiFetch(`/api/v1/auth/sessions/${id}`, { method: "DELETE" });
+    setRevoking(null);
+    if (res.error) setActionError(errorMessage(res.error));
+    else reload();
+  }
+
+  async function signOutEverywhere() {
+    setBusyAll(true);
+    const res = await apiFetch("/api/v1/auth/logout-all", { method: "POST" });
+    if (res.error) {
+      setBusyAll(false);
+      setConfirmAll(false);
+      return setActionError(errorMessage(res.error));
+    }
+    clear();
+    router.replace("/login");
+  }
+
+  return (
+    <Section
+      title="Where you're signed in"
+      action={
+        sessions.length > 1 && (
+          <Button size="sm" variant="danger" onClick={() => setConfirmAll(true)}>
+            Sign out everywhere
+          </Button>
+        )
+      }
+    >
+      <div className="space-y-3">
+        {actionError && <Notice tone="danger">{actionError}</Notice>}
+        {loading ? (
+          <Panel>
+            <div className="space-y-3 p-3" role="status" aria-label="Loading">
+              <Skeleton className="h-4 w-48" />
+              <Skeleton className="h-4 w-36" />
+            </div>
+          </Panel>
+        ) : error ? (
+          <Notice tone="danger">{errorMessage(error)}</Notice>
+        ) : sessions.length === 0 ? (
+          <EmptyState title="No active sessions" />
+        ) : (
+          <Panel>
+            <ul className="divide-y">
+              {sessions.map((s) => {
+                const current = s.id === me.sessionId;
+                return (
+                  <li key={s.id} className="flex items-center justify-between gap-4 px-3 py-3">
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-2 font-medium">
+                        {describeUserAgent(s.userAgent)}
+                        {current && (
+                          <span className="rounded border border-primary/40 px-1.5 text-xs font-normal text-primary">
+                            This device
+                          </span>
+                        )}
+                      </p>
+                      <p className="mt-0.5 text-[13px] text-text-muted">
+                        {s.ip && <span className="font-mono text-xs">{s.ip}</span>}
+                        {s.ip && " · "}
+                        Active {timeAgo(s.lastSeenAt)} · Signed in {formatDate(s.issuedAt)}
+                      </p>
+                    </div>
+                    {!current && (
+                      <Button size="sm" onClick={() => revoke(s.id)} loading={revoking === s.id}>
+                        Revoke
+                      </Button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </Panel>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={confirmAll}
+        onClose={() => !busyAll && setConfirmAll(false)}
+        onConfirm={signOutEverywhere}
+        busy={busyAll}
+        title="Sign out everywhere?"
+        confirmLabel="Sign out everywhere"
+      >
+        This ends every session, including this one, and you&rsquo;ll need to sign in again on each device.
+      </ConfirmDialog>
+    </Section>
   );
 }

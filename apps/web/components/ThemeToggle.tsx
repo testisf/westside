@@ -1,34 +1,35 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Icon } from "./icons";
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [dark, setDark] = useState(false);
 
   useEffect(() => {
-    const isDark = document.documentElement.classList.contains("dark");
-    setTheme(isDark ? "dark" : "light");
+    setDark(document.documentElement.classList.contains("dark"));
   }, []);
 
   function toggle() {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    if (next === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    try {
+      localStorage.setItem("westside-theme", next ? "dark" : "light");
+    } catch {
+      /* private mode: the choice just won't persist */
     }
-    try { localStorage.setItem("westside-theme", next); } catch { /* ignore */ }
   }
 
   return (
     <button
+      type="button"
       onClick={toggle}
-      className="h-9 w-9 rounded-md border border-border bg-surface hover:bg-surface-hover transition flex items-center justify-center text-sm"
-      aria-label="Toggle theme"
-      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      className="flex h-8 w-8 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-subtle hover:text-text"
+      aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
+      title={dark ? "Light theme" : "Dark theme"}
     >
-      {theme === "dark" ? "☀" : "☾"}
+      <Icon name={dark ? "sun" : "moon"} />
     </button>
   );
 }
