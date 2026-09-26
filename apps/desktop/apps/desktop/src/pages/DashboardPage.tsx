@@ -12,7 +12,7 @@ interface Server {
   isOwner: boolean;
 }
 interface MeResponse {
-  user: { id: string; email: string; username: string; emailVerified: boolean; mfaEnabled: boolean };
+  user: { id: string; email: string | null; username: string; emailVerified: boolean; mfaEnabled: boolean; robloxUsername: string | null };
   permissions: string[];
   roles: string[];
 }
@@ -133,8 +133,14 @@ export function DashboardPage({ onNavigate }: { onNavigate: (r: "servers" | "set
 
         <Section title="Account">
           <Dl>
-            <Dt>Email</Dt>
-            <Dd>{me.user.email}</Dd>
+            <Dt>Roblox</Dt>
+            <Dd>{me.user.robloxUsername ?? <span className="text-text-muted">Not linked</span>}</Dd>
+            {me.user.email && (
+              <>
+                <Dt>Email</Dt>
+                <Dd>{me.user.email}</Dd>
+              </>
+            )}
             <Dt>Roles</Dt>
             <Dd>
               {me.roles.length ? (
@@ -147,10 +153,14 @@ export function DashboardPage({ onNavigate }: { onNavigate: (r: "servers" | "set
                 <span className="text-text-muted">None assigned</span>
               )}
             </Dd>
-            <Dt>Verified</Dt>
-            <Dd>
-              <Status tone={me.user.emailVerified ? "ok" : "warn"}>{me.user.emailVerified ? "Verified" : "Not verified"}</Status>
-            </Dd>
+            {me.user.email && (
+              <>
+                <Dt>Verified</Dt>
+                <Dd>
+                  <Status tone={me.user.emailVerified ? "ok" : "warn"}>{me.user.emailVerified ? "Verified" : "Not verified"}</Status>
+                </Dd>
+              </>
+            )}
             <Dt>2FA</Dt>
             <Dd>
               <Status tone={me.user.mfaEnabled ? "ok" : "off"}>{me.user.mfaEnabled ? "On" : "Off"}</Status>

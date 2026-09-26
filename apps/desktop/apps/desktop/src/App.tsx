@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { LoginPage } from "./pages/LoginPage";
-import { RegisterPage } from "./pages/RegisterPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ServersPage } from "./pages/ServersPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -22,7 +21,6 @@ const TITLES: Record<Route, string> = { dashboard: "Overview", servers: "Servers
 export default function App() {
   const [route, setRoute] = useState<Route>("dashboard");
   const [authState, setAuthState] = useState<"booting" | "in" | "out">("booting");
-  const [showRegister, setShowRegister] = useState(false);
   const [version, setVersion] = useState("0.0.0");
 
   useEffect(() => {
@@ -59,10 +57,7 @@ export default function App() {
   }
 
   if (authState === "out") {
-    if (showRegister) {
-      return <RegisterPage onAuthed={() => setAuthState("in")} onBack={() => setShowRegister(false)} />;
-    }
-    return <LoginPage onAuthed={() => setAuthState("in")} onRegister={() => setShowRegister(true)} />;
+    return <LoginPage onAuthed={() => setAuthState("in")} />;
   }
 
   return (

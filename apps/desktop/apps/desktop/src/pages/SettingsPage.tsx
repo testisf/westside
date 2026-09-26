@@ -9,7 +9,7 @@ import { describeUserAgent, formatDate, timeAgo } from "../lib/format";
 import { onPttEvent, tauriGetPttAccelerator, tauriLogout, tauriRegisterPtt, tauriSetPttAccelerator } from "../lib/tauri";
 
 interface MeResponse {
-  user: { id: string; email: string; username: string; mfaEnabled: boolean };
+  user: { id: string; email: string | null; username: string; mfaEnabled: boolean; robloxUsername: string | null };
 }
 
 export function SettingsPage() {
@@ -47,8 +47,14 @@ function AccountSection({ me }: { me: MeResponse | null }) {
         <Dl>
           <Dt>Username</Dt>
           <Dd>{me.user.username}</Dd>
-          <Dt>Email</Dt>
-          <Dd>{me.user.email}</Dd>
+          <Dt>Roblox</Dt>
+          <Dd>{me.user.robloxUsername ?? <span className="text-text-muted">Not linked</span>}</Dd>
+          {me.user.email && (
+            <>
+              <Dt>Email</Dt>
+              <Dd>{me.user.email}</Dd>
+            </>
+          )}
         </Dl>
       ) : (
         <Skeleton className="h-4 w-48" />
