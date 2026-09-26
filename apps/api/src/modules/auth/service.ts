@@ -176,14 +176,7 @@ export async function login(
     });
   }
 
-  if (user.status === "disabled") {
-    throw new ApiError("AUTH_ACCOUNT_DISABLED");
-  }
-  if (user.status === "locked" || (user.lockedUntil && user.lockedUntil > new Date())) {
-    throw new ApiError("AUTH_ACCOUNT_LOCKED", {
-      details: { until: user.lockedUntil?.toISOString() },
-    });
-  }
+  assertAccountUsable(user);
 
   // Successful auth: clear failed-login state.
   if (user.failedLoginCount > 0 || user.lockedUntil) {
@@ -194,16 +187,10 @@ export async function login(
   }
 
   // Rehash if params are weaker than current policy.
-  if (hashNeedsRehash(user.passwordHash, cfg)) {
+  if (user.passwordHash && hashNeedsRehash(user.passwordHash, cfg)) {
     const newHash = await hashPassword(args.password, cfg);
     await db.update(users).set({ passwordHash: newHash }).where(eq(users.userId, user.userId));
   }
-
-  // Update last-login metadata.
-  await db
-    .update(users)
-    .set({ lastLoginAt: new Date(), lastLoginIp: meta.ip?.slice(0, IP_MAX_LEN) ?? null })
-    .where(eq(users.userId, user.userId));
 
   // 2FA gate: if user has TOTP configured, require a second step.
   if (user.mfaSecretEncrypted) {
@@ -211,7 +198,37 @@ export async function login(
     throw new ApiError("AUTH_MFA_REQUIRED", { details: { ticket } });
   }
 
-  // Provision device, session, refresh token.
+  return establishSession(cfg, user, meta);
+}
+
+/** Throws if the account can't be used regardless of how it authenticated. */
+function assertAccountUsable(user: { status: string; lockedUntil: Date | null }): void {
+  if (user.status === "disabled") {
+    throw new ApiError("AUTH_ACCOUNT_DISABLED");
+  }
+  if (user.status === "locked" || (user.lockedUntil && user.lockedUntil > new Date())) {
+    throw new ApiError("AUTH_ACCOUNT_LOCKED", {
+      details: { until: user.lockedUntil?.toISOString() },
+    });
+  }
+}
+
+/**
+ * Shared tail end of every login path (password, Roblox): records the
+ * device and session, mints a refresh token family, and signs an access
+ * token. Auth-method-specific checks (password verification, MFA) happen
+ * before this is called.
+ */
+export async function establishSession(
+  cfg: AppConfig,
+  user: typeof users.$inferSelect,
+  meta: ClientMeta,
+): Promise<AuthSessionResult> {
+  await db
+    .update(users)
+    .set({ lastLoginAt: new Date(), lastLoginIp: meta.ip?.slice(0, IP_MAX_LEN) ?? null })
+    .where(eq(users.userId, user.userId));
+
   const deviceId = await upsertDevice(user.userId, meta);
   const perms = await loadUserPermissions(user.userId);
 
@@ -259,6 +276,7 @@ export async function login(
       emailVerified: !!user.emailVerifiedAt,
       status: user.status,
       mfaEnabled: !!user.mfaSecretEncrypted,
+      robloxUsername: user.robloxUsername,
     },
     accessToken: access.jwt,
     accessTokenExpiresAt: access.expiresAt,
@@ -377,6 +395,7 @@ export async function refresh(
       emailVerified: !!user.emailVerifiedAt,
       status: user.status,
       mfaEnabled: !!user.mfaSecretEncrypted,
+      robloxUsername: user.robloxUsername,
     },
     accessToken: access.jwt,
     accessTokenExpiresAt: access.expiresAt,
@@ -512,6 +531,10 @@ export async function changePassword(
 ): Promise<void> {
   const [user] = await db.select().from(users).where(eq(users.userId, userId)).limit(1);
   if (!user) throw new ApiError("AUTH_TOKEN_INVALID");
+  if (!user.passwordHash) {
+    // Roblox-only account — there's no password to change.
+    throw new ApiError("AUTH_PASSWORD_LOGIN_DISABLED");
+  }
   const ok = await verifyPassword(user.passwordHash, currentPassword);
   if (!ok) throw new ApiError("AUTH_INVALID_CREDENTIALS");
   const newHash = await hashPassword(newPassword, cfg);
@@ -593,6 +616,7 @@ export async function loginWithMfa(
       emailVerified: !!user.emailVerifiedAt,
       status: user.status,
       mfaEnabled: !!user.mfaSecretEncrypted,
+      robloxUsername: user.robloxUsername,
     },
     accessToken: access.jwt,
     accessTokenExpiresAt: access.expiresAt,

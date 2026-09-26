@@ -15,11 +15,12 @@ import { apiFetch, onUnauthorized, setAccessToken } from "./api";
 export interface Me {
   user: {
     id: string;
-    email: string;
+    email: string | null;
     username: string;
     emailVerified: boolean;
     status: string;
     mfaEnabled: boolean;
+    robloxUsername: string | null;
   };
   sessionId: string;
   permissions: string[];

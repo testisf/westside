@@ -107,6 +107,16 @@ async function main() {
   `;
   const ownerUserId = ownerRow.user_id;
 
+  // Password sign-in is disabled by default (AUTH_PASSWORD_LOGIN_ENABLED),
+  // which would otherwise lock out this very account. If you've set your own
+  // Roblox numeric user ID here, link it so you can sign in with Roblox from
+  // the start instead of having to temporarily re-enable password login.
+  const ownerRobloxId = process.env.BOOTSTRAP_OWNER_ROBLOX_ID;
+  if (ownerRobloxId) {
+    await sql`UPDATE users SET roblox_id = ${ownerRobloxId} WHERE user_id = ${ownerUserId}`;
+    console.log(`  ✓ linked Roblox ID ${ownerRobloxId} to bootstrap owner`);
+  }
+
   const [ownerRoleRow] = await sql`SELECT role_id FROM roles WHERE name = 'OWNER' LIMIT 1`;
   await sql`
     INSERT INTO user_roles (user_id, role_id)

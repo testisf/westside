@@ -8,7 +8,8 @@ import { useApi } from "@/lib/use-api";
 
 interface User {
   id: string;
-  email: string;
+  email: string | null;
+  robloxUsername: string | null;
   username: string;
   status: string;
   emailVerified: string | null;
@@ -22,7 +23,9 @@ export default function AdminUsersPage() {
 
   const users = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (data ?? []).filter((u) => !q || `${u.username} ${u.email}`.toLowerCase().includes(q));
+    return (data ?? []).filter(
+      (u) => !q || `${u.username} ${u.email ?? ""} ${u.robloxUsername ?? ""}`.toLowerCase().includes(q),
+    );
   }, [data, query]);
 
   if (error?.code === "RBAC_FORBIDDEN") {
@@ -78,7 +81,7 @@ export default function AdminUsersPage() {
                     <tr key={u.id} className="transition-colors hover:bg-surface-hover">
                       <td className="max-w-0 px-3 py-2.5">
                         <span className="block truncate font-medium">{u.username}</span>
-                        <span className="block truncate text-xs text-text-muted">{u.email}</span>
+                        <span className="block truncate text-xs text-text-muted">{u.email ?? (u.robloxUsername ? `Roblox: ${u.robloxUsername}` : "—")}</span>
                       </td>
                       <td className="px-3 py-2.5">
                         <Status tone={statusTone(u.status)}>{u.status}</Status>

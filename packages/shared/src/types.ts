@@ -29,11 +29,14 @@ export type ApiResponse<T> = ApiOk<T> | ApiError;
 
 export interface AuthUser {
   id: string;
-  email: string;
+  // Null for Roblox-only accounts, which have no email on file.
+  email: string | null;
   username: string;
   emailVerified: boolean;
   status: UserStatus;
   mfaEnabled: boolean;
+  // Present once a Roblox account is linked; null for password-only accounts.
+  robloxUsername: string | null;
 }
 
 export type UserStatus = "active" | "disabled" | "locked" | "pending";

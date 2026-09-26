@@ -105,10 +105,20 @@ export const users = pgTable(
   "users",
   {
     userId: uuid("user_id").primaryKey().defaultRandom(),
-    email: citext("email").notNull().unique(),
+    // Nullable: Roblox-only accounts (see roblox_id below) have neither. When
+    // present, email/username still enforce uniqueness via the column-level
+    // constraint below (Postgres allows any number of NULLs in a unique column).
+    email: citext("email").unique(),
     username: citext("username").notNull().unique(),
-    passwordHash: text("password_hash").notNull(),
-    argon2Params: text("argon2_params").notNull(), // serialized; lets us rehash on policy bump
+    passwordHash: text("password_hash"),
+    argon2Params: text("argon2_params"), // serialized; lets us rehash on policy bump. Null for Roblox-only accounts.
+    // Roblox OAuth identity (sub claim from Roblox's OIDC userinfo — stable
+    // even if the user renames). NULL for any account created before Roblox
+    // sign-in was added. Uniqueness is enforced by a partial index in SQL
+    // (users_roblox_id_unique, migration 0002) since Drizzle's pg-core
+    // doesn't yet express "UNIQUE WHERE NOT NULL" directly.
+    robloxId: text("roblox_id"),
+    robloxUsername: varchar("roblox_username", { length: 100 }),
     emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true, mode: "date" }),
     mfaSecretEncrypted: text("mfa_secret_encrypted"),
     status: userStatusEnum("status").notNull().default("pending"),
@@ -124,6 +134,7 @@ export const users = pgTable(
   (t) => ({
     statusIdx: index("users_status_idx").on(t.status),
     createdAtIdx: index("users_created_at_idx").on(t.createdAt),
+    robloxIdIdx: index("users_roblox_id_idx").on(t.robloxId),
   }),
 );
 

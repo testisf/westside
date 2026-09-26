@@ -205,6 +205,12 @@ export async function registerMfaRoutes(app: FastifyInstance, cfg: AppConfig) {
       if (!user.mfaSecretEncrypted) {
         throw new ApiError("CONFLICT", { internalMessage: "MFA not enabled" });
       }
+      if (!user.passwordHash) {
+        // Roblox-only account — nothing to confirm with a password. (In
+        // practice these accounts have no reason to have MFA enabled, since
+        // Roblox sign-in doesn't go through this password-confirmation step.)
+        throw new ApiError("AUTH_PASSWORD_LOGIN_DISABLED");
+      }
       const pwOk = await verifyPassword(user.passwordHash, body.password);
       if (!pwOk) throw new ApiError("AUTH_INVALID_CREDENTIALS");
       const codeOk = verifyTotpCode(body.code, user.mfaSecretEncrypted, cfg);

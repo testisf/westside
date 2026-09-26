@@ -1,187 +1,61 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { AuthLayout } from "@/components/AuthLayout";
-import { Button, Field, Input, Notice } from "@/components/ui";
-import { apiFetch, errorMessage } from "@/lib/api";
+import { Notice } from "@/components/ui";
+import { API_BASE_URL } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
-interface LoginPayload {
-  accessToken: string;
-  accessTokenExpiresAt: string;
+const ERROR_MESSAGE: Record<string, string> = {
+  roblox_denied: "Sign-in was cancelled on Roblox.",
+  roblox_oauth_failed: "Roblox sign-in failed. Please try again.",
+  account_unavailable: "This account is disabled. Contact an administrator.",
+};
+
+function RobloxIcon() {
+  // Roblox's own mark, simplified to a single path so it inherits currentColor.
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M5.164 3 3 18.836 18.836 21 21 5.164 5.164 3Zm7.373 6.514 4.111.581-.581 4.111-4.111-.581.581-4.111Z" />
+    </svg>
+  );
 }
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
-  const { state, signIn } = useSession();
+  const { state } = useSession();
+  const error = useSearchParams().get("error");
 
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [mfaTicket, setMfaTicket] = useState<string | null>(null);
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Someone with a live session doesn't need this page.
   useEffect(() => {
     if (state.status === "authenticated") router.replace("/dashboard");
   }, [state.status, router]);
 
-  async function finish(payload: LoginPayload) {
-    await signIn(payload.accessToken, payload.accessTokenExpiresAt);
-    router.replace("/dashboard");
-  }
-
-  async function handleCredentials(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    const res = await apiFetch<LoginPayload>(
-      "/api/v1/auth/login",
-      { method: "POST", body: JSON.stringify({ identifier: identifier.trim(), password }) },
-      { auth: false },
-    );
-    if (res.data) return finish(res.data);
-    setBusy(false);
-
-    if (res.error?.code === "AUTH_MFA_REQUIRED" && res.error.details?.ticket) {
-      setMfaTicket(res.error.details.ticket);
-      setCode("");
-      return;
-    }
-    setError(errorMessage(res.error));
-  }
-
-  async function handleCode(e: React.FormEvent) {
-    e.preventDefault();
-    if (!mfaTicket) return;
-    setBusy(true);
-    setError(null);
-    const res = await apiFetch<LoginPayload>(
-      "/api/v1/auth/login/mfa",
-      { method: "POST", body: JSON.stringify({ ticket: mfaTicket, code }) },
-      { auth: false },
-    );
-    if (res.data) return finish(res.data);
-    setBusy(false);
-
-    if (res.error?.code === "AUTH_TOKEN_INVALID") {
-      // The ticket is short-lived; the only way forward is to start over.
-      setMfaTicket(null);
-      setPassword("");
-      setError("That sign-in attempt timed out. Enter your password again.");
-      return;
-    }
-    setError(errorMessage(res.error));
-  }
-
-  if (mfaTicket) {
-    return (
-      <AuthLayout
-        title="Enter your code"
-        subtitle="Open your authenticator app and enter the 6-digit code for Westside."
-        footer={
-          <button
-            type="button"
-            className="text-primary hover:underline"
-            onClick={() => {
-              setMfaTicket(null);
-              setPassword("");
-              setError(null);
-            }}
-          >
-            Use a different account
-          </button>
-        }
-      >
-        <form onSubmit={handleCode} className="space-y-4" noValidate>
-          {error && <Notice tone="danger">{error}</Notice>}
-          <Field label="Authentication code">
-            {(p) => (
-              <Input
-                {...p}
-                mono
-                autoFocus
-                required
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
-                pattern="\d{6}"
-                placeholder="123456"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-                className="tracking-[0.3em]"
-              />
-            )}
-          </Field>
-          <Button type="submit" variant="primary" loading={busy} disabled={code.length !== 6} className="w-full">
-            Verify and sign in
-          </Button>
-        </form>
-      </AuthLayout>
-    );
-  }
-
   return (
-    <AuthLayout
-      title="Sign in"
-      subtitle="Use the email or username you registered with."
-      footer={
-        <>
-          New to Westside?{" "}
-          <Link href="/register" className="text-primary hover:underline">
-            Create an account
-          </Link>
-        </>
-      }
-    >
-      <form onSubmit={handleCredentials} className="space-y-4">
-        {error && <Notice tone="danger">{error}</Notice>}
-        <Field label="Email or username">
-          {(p) => (
-            <Input
-              {...p}
-              type="text"
-              autoFocus
-              required
-              autoComplete="username"
-              autoCapitalize="none"
-              spellCheck={false}
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-            />
-          )}
-        </Field>
-        <Field label="Password">
-          {(p) => (
-            <div className="relative">
-              <Input
-                {...p}
-                type={showPassword ? "text" : "password"}
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="pr-14"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((s) => !s)}
-                className="absolute inset-y-0 right-0 px-2.5 text-xs text-text-muted hover:text-text"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? "Hide" : "Show"}
-              </button>
-            </div>
-          )}
-        </Field>
-        <Button type="submit" variant="primary" loading={busy} className="w-full">
-          {busy ? "Signing in…" : "Sign in"}
-        </Button>
-      </form>
+    <AuthLayout title="Sign in" subtitle="Westside accounts are created and secured through Roblox.">
+      <div className="space-y-4">
+        {error && <Notice tone="danger">{ERROR_MESSAGE[error] ?? "Something went wrong. Please try again."}</Notice>}
+        <a
+          href={`${API_BASE_URL}/api/v1/auth/roblox/login?client=web&returnTo=${encodeURIComponent("/dashboard")}`}
+          className="flex h-9 w-full items-center justify-center gap-2 rounded bg-[#000] text-sm font-medium text-white transition-opacity hover:opacity-90"
+        >
+          <RobloxIcon />
+          Continue with Roblox
+        </a>
+        <p className="text-text-muted">
+          First time here? Signing in with Roblox creates your Westside account automatically — a server owner
+          adds you to their community afterwards.
+        </p>
+      </div>
     </AuthLayout>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
   );
 }

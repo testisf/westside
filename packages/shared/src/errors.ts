@@ -33,6 +33,9 @@ export const ErrorCode = {
   AUTH_EMAIL_TAKEN: "AUTH_EMAIL_TAKEN",
   AUTH_USERNAME_TAKEN: "AUTH_USERNAME_TAKEN",
   AUTH_PASSWORD_TOO_WEAK: "AUTH_PASSWORD_TOO_WEAK",
+  AUTH_PASSWORD_LOGIN_DISABLED: "AUTH_PASSWORD_LOGIN_DISABLED",
+  AUTH_ROBLOX_OAUTH_FAILED: "AUTH_ROBLOX_OAUTH_FAILED",
+  AUTH_ROBLOX_STATE_INVALID: "AUTH_ROBLOX_STATE_INVALID",
 
   // RBAC
   RBAC_FORBIDDEN: "RBAC_FORBIDDEN",
@@ -75,6 +78,9 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   AUTH_EMAIL_TAKEN: 409,
   AUTH_USERNAME_TAKEN: 409,
   AUTH_PASSWORD_TOO_WEAK: 422,
+  AUTH_PASSWORD_LOGIN_DISABLED: 403,
+  AUTH_ROBLOX_OAUTH_FAILED: 401,
+  AUTH_ROBLOX_STATE_INVALID: 400,
 
   RBAC_FORBIDDEN: 403,
   RBAC_PERMISSION_REQUIRED: 403,
@@ -112,6 +118,9 @@ export const ERROR_PUBLIC_MESSAGE: Record<ErrorCode, string> = {
   AUTH_EMAIL_TAKEN: "An account with this email already exists.",
   AUTH_USERNAME_TAKEN: "An account with this username already exists.",
   AUTH_PASSWORD_TOO_WEAK: "Password does not meet complexity requirements.",
+  AUTH_PASSWORD_LOGIN_DISABLED: "Sign in with Roblox instead — password sign-in is turned off.",
+  AUTH_ROBLOX_OAUTH_FAILED: "Roblox sign-in failed. Please try again.",
+  AUTH_ROBLOX_STATE_INVALID: "This sign-in link expired or was already used. Please try again.",
 
   RBAC_FORBIDDEN: "You do not have permission to perform this action.",
   RBAC_PERMISSION_REQUIRED: "A specific permission is required for this action.",

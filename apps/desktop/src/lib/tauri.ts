@@ -7,11 +7,13 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export interface UserData {
   id: string;
-  email: string;
+  // Null for Roblox-only accounts, which have no email on file.
+  email: string | null;
   username: string;
   email_verified: boolean;
   status: string;
   mfa_enabled: boolean;
+  roblox_username: string | null;
 }
 
 export interface LoginResult {
@@ -43,6 +45,17 @@ export async function tauriVerifyEmail(token: string): Promise<void> {
 export async function tauriLoginMfa(ticket: string, code: string): Promise<LoginResult> {
   if (!isTauri()) throw new Error("NOT_IN_TAURI");
   return invoke<LoginResult>("login_mfa", { ticket, code });
+}
+
+/**
+ * Opens the system browser to sign in with Roblox, and waits for the app to
+ * receive the result on a local loopback port. Rejects with
+ * "ROBLOX_LOGIN_TIMEOUT" if nothing comes back within 5 minutes, or with
+ * whatever error code the callback carried (e.g. "ROBLOX_DENIED").
+ */
+export async function tauriLoginWithRoblox(): Promise<LoginResult> {
+  if (!isTauri()) throw new Error("NOT_IN_TAURI");
+  return invoke<LoginResult>("login_with_roblox");
 }
 
 export async function tauriRefresh(): Promise<string> {

@@ -50,21 +50,25 @@ pub struct LoginData {
 #[serde(rename_all = "camelCase")]
 pub struct UserData {
     pub id: String,
-    pub email: String,
+    /// Null for Roblox-only accounts, which have no email on file.
+    pub email: Option<String>,
     pub username: String,
     pub email_verified: bool,
     pub status: String,
     pub mfa_enabled: bool,
+    #[serde(default)]
+    pub roblox_username: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrontendUser {
     pub id: String,
-    pub email: String,
+    pub email: Option<String>,
     pub username: String,
     pub email_verified: bool,
     pub status: String,
     pub mfa_enabled: bool,
+    pub roblox_username: Option<String>,
 }
 
 impl From<UserData> for FrontendUser {
@@ -76,6 +80,7 @@ impl From<UserData> for FrontendUser {
             email_verified: u.email_verified,
             status: u.status,
             mfa_enabled: u.mfa_enabled,
+            roblox_username: u.roblox_username,
         }
     }
 }

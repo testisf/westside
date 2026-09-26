@@ -50,6 +50,7 @@ import {
   revokeSession,
   verifyEmail,
 } from "./service.ts";
+import { registerRobloxAuthRoutes } from "./roblox.ts";
 
 const REFRESH_COOKIE = "ws_refresh";
 const REFRESH_COOKIE_PATH = "/api/v1/auth";
@@ -77,8 +78,13 @@ function clearRefreshCookie(reply: any) {
 export default async function authRoutes(app: FastifyInstance, opts: { config: AppConfig }) {
   const cfg = opts.config;
 
+  registerRobloxAuthRoutes(app, cfg);
+
   /* ---------- Register ---------- */
   app.post("/api/v1/auth/register", async (req, reply) => {
+    if (!cfg.auth.passwordLoginEnabled) {
+      throw new ApiError("AUTH_PASSWORD_LOGIN_DISABLED");
+    }
     const body = registerSchema.parse(req.body);
 
     // Per-IP rate limit (10 / hour).
@@ -115,6 +121,9 @@ export default async function authRoutes(app: FastifyInstance, opts: { config: A
 
   /* ---------- Login ---------- */
   app.post("/api/v1/auth/login", async (req, reply) => {
+    if (!cfg.auth.passwordLoginEnabled) {
+      throw new ApiError("AUTH_PASSWORD_LOGIN_DISABLED");
+    }
     const body = loginSchema.parse(req.body);
 
     // Per-IP + per-identifier rate limit — CHECK only, don't increment.

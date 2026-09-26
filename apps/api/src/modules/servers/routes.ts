@@ -181,6 +181,7 @@ export default async function serverRoutes(app: FastifyInstance, _opts: { config
           leftAt: serverMemberships.leftAt,
           email: users.email,
           username: users.username,
+          robloxUsername: users.robloxUsername,
         })
         .from(serverMemberships)
         .innerJoin(users, eq(serverMemberships.userId, users.userId))
@@ -191,6 +192,7 @@ export default async function serverRoutes(app: FastifyInstance, _opts: { config
           userId: r.userId,
           username: r.username,
           email: r.email,
+          robloxUsername: r.robloxUsername,
           status: r.status,
           joinedAt: r.joinedAt.toISOString(),
           leftAt: r.leftAt?.toISOString() ?? null,

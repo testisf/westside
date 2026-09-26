@@ -86,6 +86,7 @@ async function loadAuthContext(cfg: AppConfig, token: string): Promise<AuthConte
     emailVerified: !!user.emailVerifiedAt,
     status: user.status,
     mfaEnabled: !!user.mfaSecretEncrypted,
+    robloxUsername: user.robloxUsername,
   };
 
   // Load role names for client UX (informational only).

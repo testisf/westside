@@ -92,6 +92,19 @@ export interface AppConfig {
   };
   databaseUrl: string;
   redisUrl: string;
+  auth: {
+    // Default false: Roblox is the only way to sign in or register. Set
+    // AUTH_PASSWORD_LOGIN_ENABLED=true to bring back email/password
+    // alongside it (existing password accounts are never deleted either way).
+    passwordLoginEnabled: boolean;
+  };
+  roblox: {
+    clientId: string;
+    clientSecret: string;
+    // Must exactly match a redirect URI registered on the Roblox OAuth app.
+    // This is OUR callback (api.baseUrl + this path), not the web app's.
+    callbackPath: string;
+  };
 }
 
 let cached: AppConfig | null = null;
@@ -124,7 +137,17 @@ export function loadConfig(): AppConfig {
     api: {
       port: int("API_PORT", 4000),
       baseUrl: required("API_BASE_URL"),
-      corsOrigins: list("CORS_ORIGINS", ["http://localhost:3000"]),
+      // The desktop app's dev server (localhost:1420) and its production
+      // webview origin (tauri://localhost, http://tauri.localhost) need to
+      // be allowed too, since the desktop client calls this API directly
+      // for everything except login/refresh/logout (those go through the
+      // Rust bridge, not the browser fetch this CORS check applies to).
+      corsOrigins: list("CORS_ORIGINS", [
+        "http://localhost:3000",
+        "http://localhost:1420",
+        "tauri://localhost",
+        "http://tauri.localhost",
+      ]),
     },
     web: {
       baseUrl: required("WEB_BASE_URL"),
@@ -161,6 +184,14 @@ export function loadConfig(): AppConfig {
     },
     databaseUrl: required("DATABASE_URL"),
     redisUrl: required("REDIS_URL"),
+    auth: {
+      passwordLoginEnabled: optional("AUTH_PASSWORD_LOGIN_ENABLED", "false") === "true",
+    },
+    roblox: {
+      clientId: optional("ROBLOX_CLIENT_ID", ""),
+      clientSecret: optional("ROBLOX_CLIENT_SECRET", ""),
+      callbackPath: "/api/v1/auth/roblox/callback",
+    },
   });
 
   return cached;

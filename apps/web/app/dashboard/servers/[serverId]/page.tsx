@@ -24,7 +24,8 @@ interface Member {
   membershipId: string;
   userId: string;
   username: string;
-  email: string;
+  email: string | null;
+  robloxUsername: string | null;
   status: string;
   joinedAt: string;
   leftAt: string | null;
@@ -127,7 +128,7 @@ export default function ServerDetailPage() {
                             <span className="ml-2 text-xs font-normal text-text-muted">Owner</span>
                           )}
                         </span>
-                        <span className="block truncate text-xs text-text-muted">{m.email}</span>
+                        <span className="block truncate text-xs text-text-muted">{m.email ?? (m.robloxUsername ? `Roblox: ${m.robloxUsername}` : "—")}</span>
                       </td>
                       <td className="px-3 py-2.5">
                         <Status tone={statusTone(m.status)}>{m.status}</Status>
