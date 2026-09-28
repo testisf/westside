@@ -35,7 +35,11 @@ function LoginContent() {
   return (
     <AuthLayout title="Sign in" subtitle="Westside accounts are created and secured through Roblox.">
       <div className="space-y-4">
-        {error && <Notice tone="danger">{ERROR_MESSAGE[error] ?? "Something went wrong. Please try again."}</Notice>}
+        {error && (
+          <Notice tone="danger">
+            {ERROR_MESSAGE[error] ?? `Roblox sign-in failed (${error}). Please try again.`}
+          </Notice>
+        )}
         <a
           href={`${API_BASE_URL}/api/v1/auth/roblox/login?client=web&returnTo=${encodeURIComponent("/dashboard")}`}
           className="flex h-9 w-full items-center justify-center gap-2 rounded bg-[#000] text-sm font-medium text-white transition-opacity hover:opacity-90"

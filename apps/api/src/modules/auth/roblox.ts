@@ -98,6 +98,27 @@ async function uniqueUsernameFrom(seed: string): Promise<string> {
   return `player_${randomBytes(6).toString("hex")}`;
 }
 
+/** A failure in the Roblox exchange, with a short reason that is safe to show the user. */
+class RobloxFlowError extends Error {
+  constructor(
+    readonly reason: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RobloxFlowError";
+  }
+}
+
+/** Roblox's OAuth error code (e.g. "invalid_client") if the body has a well-formed one. */
+function oauthErrorCode(body: string): string | null {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    return typeof parsed.error === "string" && /^[a-z_]{1,40}$/.test(parsed.error) ? parsed.error : null;
+  } catch {
+    return null;
+  }
+}
+
 interface RobloxUserinfo {
   sub: string;
   preferred_username?: string;
@@ -122,26 +143,29 @@ async function exchangeCodeForRobloxProfile(
     }),
   });
   if (!tokenRes.ok) {
-    throw new ApiError("AUTH_ROBLOX_OAUTH_FAILED", {
-      internalMessage: `Roblox token exchange failed: ${tokenRes.status} ${await tokenRes.text()}`,
-    });
+    const text = await tokenRes.text();
+    throw new RobloxFlowError(
+      `roblox_token_${oauthErrorCode(text) ?? tokenRes.status}`,
+      `Roblox token exchange failed: ${tokenRes.status} ${text}`,
+    );
   }
   const tokenBody = (await tokenRes.json()) as { access_token?: string };
   if (!tokenBody.access_token) {
-    throw new ApiError("AUTH_ROBLOX_OAUTH_FAILED", { internalMessage: "Roblox token response had no access_token" });
+    throw new RobloxFlowError("roblox_token_missing", "Roblox token response had no access_token");
   }
 
   const userinfoRes = await fetch(ROBLOX_USERINFO_URL, {
     headers: { Authorization: `Bearer ${tokenBody.access_token}` },
   });
   if (!userinfoRes.ok) {
-    throw new ApiError("AUTH_ROBLOX_OAUTH_FAILED", {
-      internalMessage: `Roblox userinfo failed: ${userinfoRes.status} ${await userinfoRes.text()}`,
-    });
+    throw new RobloxFlowError(
+      `roblox_userinfo_${userinfoRes.status}`,
+      `Roblox userinfo failed: ${userinfoRes.status} ${await userinfoRes.text()}`,
+    );
   }
   const profile = (await userinfoRes.json()) as RobloxUserinfo;
   if (!profile.sub) {
-    throw new ApiError("AUTH_ROBLOX_OAUTH_FAILED", { internalMessage: "Roblox userinfo response had no sub" });
+    throw new RobloxFlowError("roblox_userinfo_no_sub", "Roblox userinfo response had no sub");
   }
   return profile;
 }
@@ -280,8 +304,9 @@ export function registerRobloxAuthRoutes(app: FastifyInstance, cfg: AppConfig): 
         });
       }
     } catch (err) {
-      req.log.error({ err }, "Roblox sign-in failed");
-      return failureRedirect("roblox_oauth_failed");
+      const reason = err instanceof RobloxFlowError ? err.reason : "server_error";
+      req.log.error({ err, reason }, "Roblox sign-in failed");
+      return failureRedirect(reason);
     }
 
     if (stored.client === "desktop" && stored.port) {
