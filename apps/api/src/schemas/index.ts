@@ -104,6 +104,21 @@ const slugSchema = z
   .max(60, "Slug must be at most 60 characters")
   .regex(/^[a-z0-9-]+$/, "Slug may contain lowercase letters, digits, and hyphens only");
 
+// Accept http(s) URLs, plus roblox.com / roblox.gg place links that the
+// platform may surface in popups. Empty strings are coerced to undefined
+// so callers can submit the form with a blank field without a validation
+// error.
+const optionalUrl = z
+  .preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().url("Must be a valid URL").max(2048).optional(),
+  );
+
+const optionalCategoryJustification = z
+  .string()
+  .max(2000, "Category justification must be at most 2000 characters")
+  .optional();
+
 export const createServerSchema = z
   .object({
     name: z.string().min(3).max(120),
@@ -111,6 +126,12 @@ export const createServerSchema = z
     description: z.string().max(2000).optional(),
     robloxPlaceId: z.string().max(32).optional(),
     robloxUniverseId: z.string().max(32).optional(),
+    // ----- Listing / submission metadata -----
+    privacyPolicyUrl: optionalUrl,
+    termsOfServiceUrl: optionalUrl,
+    entryLink: optionalUrl,
+    demoVideoUrl: optionalUrl,
+    categoryJustification: optionalCategoryJustification,
   })
   .strict();
 
@@ -121,6 +142,12 @@ export const updateServerSchema = z
     robloxPlaceId: z.string().max(32).optional(),
     robloxUniverseId: z.string().max(32).optional(),
     status: z.enum(["active", "suspended", "archived"]).optional(),
+    // ----- Listing / submission metadata -----
+    privacyPolicyUrl: optionalUrl,
+    termsOfServiceUrl: optionalUrl,
+    entryLink: optionalUrl,
+    demoVideoUrl: optionalUrl,
+    categoryJustification: optionalCategoryJustification,
   })
   .strict();
 

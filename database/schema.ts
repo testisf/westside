@@ -403,6 +403,17 @@ export const servers = pgTable(
       .references(() => users.userId, { onDelete: "restrict" }),
     status: serverStatusEnum("status").notNull().default("active"),
     settings: jsonb("settings").notNull().default({}),
+    // ----- Submission / listing metadata -----
+    // Optional URLs shown on a server's public listing page. All nullable so
+    // existing rows migrate cleanly. varchar(2048) is enough for any
+    // reasonable URL including tracking params.
+    privacyPolicyUrl: varchar("privacy_policy_url", { length: 2048 }),
+    termsOfServiceUrl: varchar("terms_of_service_url", { length: 2048 }),
+    entryLink: varchar("entry_link", { length: 2048 }),
+    demoVideoUrl: varchar("demo_video_url", { length: 2048 }),
+    // Free-form text the server owner writes to justify the server's
+    // category placement (e.g. "ERP community — Liberty County setting").
+    categoryJustification: text("category_justification"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "date" }),

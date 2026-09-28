@@ -80,6 +80,12 @@ export default async function serverRoutes(app: FastifyInstance, _opts: { config
           robloxPlaceId: body.robloxPlaceId ?? null,
           robloxUniverseId: body.robloxUniverseId ?? null,
           ownerId: req.auth!.user.id,
+          // Listing / submission metadata (all optional).
+          privacyPolicyUrl: body.privacyPolicyUrl ?? null,
+          termsOfServiceUrl: body.termsOfServiceUrl ?? null,
+          entryLink: body.entryLink ?? null,
+          demoVideoUrl: body.demoVideoUrl ?? null,
+          categoryJustification: body.categoryJustification ?? null,
         })
         .returning();
 
@@ -328,6 +334,12 @@ function serializeServer(row: typeof servers.$inferSelect, isOwner: boolean) {
     ownerId: row.ownerId,
     status: row.status,
     isOwner,
+    // Listing / submission metadata
+    privacyPolicyUrl: row.privacyPolicyUrl,
+    termsOfServiceUrl: row.termsOfServiceUrl,
+    entryLink: row.entryLink,
+    demoVideoUrl: row.demoVideoUrl,
+    categoryJustification: row.categoryJustification,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
