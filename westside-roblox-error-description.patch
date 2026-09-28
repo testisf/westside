@@ -1,0 +1,45 @@
+diff --git a/apps/api/src/modules/auth/roblox.ts b/apps/api/src/modules/auth/roblox.ts
+index e190da1..5d822ce 100644
+--- a/apps/api/src/modules/auth/roblox.ts
++++ b/apps/api/src/modules/auth/roblox.ts
+@@ -109,11 +109,27 @@ class RobloxFlowError extends Error {
+   }
+ }
+ 
+-/** Roblox's OAuth error code (e.g. "invalid_client") if the body has a well-formed one. */
+-function oauthErrorCode(body: string): string | null {
++/**
++ * Roblox's OAuth error response has `error` (a short machine code, e.g.
++ * "invalid_grant") and usually `error_description` (a plain-English reason,
++ * e.g. "the authorization code has expired"). We fold both into the reason
++ * string shown to the user, so a real diagnosis doesn't require server log
++ * access — everything here is Roblox's own public error text, safe to show.
++ */
++function oauthErrorSummary(body: string): string | null {
+   try {
+-    const parsed = JSON.parse(body) as { error?: unknown };
+-    return typeof parsed.error === "string" && /^[a-z_]{1,40}$/.test(parsed.error) ? parsed.error : null;
++    const parsed = JSON.parse(body) as { error?: unknown; error_description?: unknown };
++    const code = typeof parsed.error === "string" && /^[a-z_]{1,40}$/.test(parsed.error) ? parsed.error : null;
++    if (!code) return null;
++    const description =
++      typeof parsed.error_description === "string"
++        ? parsed.error_description
++            .toLowerCase()
++            .replace(/[^a-z0-9]+/g, "_")
++            .replace(/^_+|_+$/g, "")
++            .slice(0, 60)
++        : "";
++    return description ? `${code}__${description}` : code;
+   } catch {
+     return null;
+   }
+@@ -145,7 +161,7 @@ async function exchangeCodeForRobloxProfile(
+   if (!tokenRes.ok) {
+     const text = await tokenRes.text();
+     throw new RobloxFlowError(
+-      `roblox_token_${oauthErrorCode(text) ?? tokenRes.status}`,
++      `roblox_token_${oauthErrorSummary(text) ?? tokenRes.status}`,
+       `Roblox token exchange failed: ${tokenRes.status} ${text}`,
+     );
+   }
