@@ -10,7 +10,9 @@ function describeError(err: unknown): string {
   if (msg.includes("ACCOUNT_UNAVAILABLE")) return "This account is disabled. Contact an administrator.";
   if (msg.includes("NETWORK_ERROR")) return "Can't reach Westside. Check your connection and try again.";
   if (msg.includes("NOT_IN_TAURI")) return "This screen only works inside the Westside desktop app.";
-  return "Roblox sign-in failed. Try again.";
+  // Anything else: show the error code so a failure can actually be diagnosed.
+  const code = msg.match(/[A-Z][A-Z_]{5,}/)?.[0];
+  return code ? `Roblox sign-in failed (${code}). Try again.` : "Roblox sign-in failed. Try again.";
 }
 
 function RobloxIcon() {

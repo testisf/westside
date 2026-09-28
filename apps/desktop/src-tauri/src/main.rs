@@ -4,12 +4,12 @@
 
 mod api;
 mod hotkey;
+mod roblox_login;
 mod storage;
 mod updater;
 
 use api::{extract_mfa_ticket, ApiError, ApiErrorBody, FrontendUser};
 use storage::{clear_credentials, load_credentials, save_credentials, StoredCredentials};
-use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
@@ -218,20 +218,15 @@ async fn login_mfa(
 }
 
 /// Roblox sign-in for desktop: opens the system browser to our API's Roblox
-/// OAuth entry point, and listens on a one-shot local HTTP server for the
-/// redirect back. The API does the actual OAuth exchange with Roblox
-/// (it holds the client secret); this loopback only ever carries OUR
-/// already-issued tokens, from our own API, to our own running process, on
-/// 127.0.0.1 — never the Roblox authorization code itself.
+/// OAuth entry point, then waits on a one-shot loopback listener for the
+/// redirect back. The API does the actual OAuth exchange with Roblox (it
+/// holds the client secret); the loopback only ever carries OUR already-issued
+/// tokens, from our own API, to this process, on 127.0.0.1.
 ///
-/// UNVERIFIED: this was written without a Rust toolchain available to
-/// compile it. Build with `pnpm tauri dev` and confirm before shipping.
+/// The listener itself lives in `roblox_login.rs` and has its own tests.
 #[tauri::command]
 async fn login_with_roblox(app: AppHandle) -> Result<LoginResult, String> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-
-    let listener = TcpListener::bind("127.0.0.1:0")
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| format!("failed to start local listener: {e}"))?;
     let port = listener
@@ -249,65 +244,13 @@ async fn login_with_roblox(app: AppHandle) -> Result<LoginResult, String> {
         .open(&login_url, None)
         .map_err(|e| format!("failed to open browser: {e}"))?;
 
-    // Five minutes to complete sign-in on Roblox's site before we give up.
-    let accepted = tokio::time::timeout(std::time::Duration::from_secs(300), listener.accept()).await;
-    let (mut socket, _) = match accepted {
-        Ok(Ok(pair)) => pair,
-        Ok(Err(e)) => return Err(format!("loopback listener error: {e}")),
-        Err(_) => return Err("ROBLOX_LOGIN_TIMEOUT".to_string()),
-    };
-
-    // Read the single GET request the redirect sends. We control the
-    // format (our own API built the URL), so a plain request-line parse is
-    // enough — this never needs to handle arbitrary HTTP.
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let n = socket
-            .read(&mut chunk)
-            .await
-            .map_err(|e| format!("failed to read callback request: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        buf.extend_from_slice(&chunk[..n]);
-        if buf.windows(4).any(|w| w == b"\r\n\r\n") || n < chunk.len() {
-            break;
-        }
-    }
-    let request = String::from_utf8_lossy(&buf);
-    let request_line = request.lines().next().unwrap_or("");
-    let path_and_query = request_line.split_whitespace().nth(1).unwrap_or("");
-    let query = path_and_query.splitn(2, '?').nth(1).unwrap_or("");
-    let params = parse_query(query);
-
-    let body = "<html><body style=\"font-family: sans-serif; padding: 2rem;\">\
-        You can close this window and return to Westside.</body></html>";
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    let _ = socket.write_all(response.as_bytes()).await;
-    let _ = socket.shutdown().await;
-
-    if let Some(err) = params.get("error") {
-        return Err(err.to_uppercase());
-    }
-    let payload = params.get("payload").ok_or_else(|| "ROBLOX_LOGIN_NO_PAYLOAD".to_string())?;
-
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct RobloxCallbackPayload {
-        user: api::UserData,
-        access_token: String,
-        #[allow(dead_code)]
-        access_token_expires_at: String,
-        refresh_token: Option<String>,
-    }
-
-    let data: RobloxCallbackPayload =
-        serde_json::from_str(payload).map_err(|e| format!("failed to parse Roblox callback payload: {e}"))?;
+    // Five minutes to finish signing in on Roblox's site before giving up.
+    let data = roblox_login::wait_for_callback(listener, std::time::Duration::from_secs(300))
+        .await
+        .map_err(|code| {
+            log::warn!("Roblox sign-in failed: {code}");
+            code
+        })?;
 
     let creds = StoredCredentials {
         access_token: Some(data.access_token.clone()),
@@ -324,49 +267,6 @@ async fn login_with_roblox(app: AppHandle) -> Result<LoginResult, String> {
         mfa_required: false,
         mfa_ticket: None,
     })
-}
-
-/// Minimal `application/x-www-form-urlencoded`-style query parser — just
-/// enough for the params our own API's redirect puts on the loopback URL.
-fn parse_query(query: &str) -> HashMap<String, String> {
-    query
-        .split('&')
-        .filter(|s| !s.is_empty())
-        .filter_map(|pair| {
-            let mut it = pair.splitn(2, '=');
-            let key = it.next()?;
-            let value = it.next().unwrap_or("");
-            Some((percent_decode(key), percent_decode(value)))
-        })
-        .collect()
-}
-
-fn percent_decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => {
-                out.push(b' ');
-                i += 1;
-            }
-            b'%' if i + 2 < bytes.len() => {
-                if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                    out.push(byte);
-                    i += 3;
-                } else {
-                    out.push(bytes[i]);
-                    i += 1;
-                }
-            }
-            b => {
-                out.push(b);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[tauri::command]
